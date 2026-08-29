@@ -1,0 +1,80 @@
+# Cost-aware model registry.
+#
+# Prices are USD per 1M tokens (first-party API rates). Model IDs are the exact
+# strings the provider SDK expects — never append date suffixes.
+# Verify against provider pricing pages before trusting cost projections.
+# `tiers` lists which CostTier values a model may serve.
+
+models:
+  claude-haiku-4-5:
+    model_id: claude-haiku-4-5
+    provider: anthropic
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+    context_window: 200000
+    max_output_tokens: 64000
+    avg_latency_ms: 1200
+    reliability_score: 0.97
+    supports_tools: true
+    supports_vision: true
+    tiers: [cheap, standard]
+
+  claude-sonnet-5:
+    model_id: claude-sonnet-5
+    provider: anthropic
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    context_window: 1000000
+    max_output_tokens: 128000
+    avg_latency_ms: 2400
+    reliability_score: 0.98
+    supports_tools: true
+    supports_vision: true
+    tiers: [standard, premium, critical]
+
+  claude-opus-5:
+    model_id: claude-opus-5
+    provider: anthropic
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    context_window: 1000000
+    max_output_tokens: 128000
+    avg_latency_ms: 4200
+    reliability_score: 0.99
+    supports_tools: true
+    supports_vision: true
+    tiers: [premium, critical]
+
+  # OpenAI entries are illustrative — confirm current pricing before use.
+  gpt-4o-mini:
+    model_id: gpt-4o-mini
+    provider: openai
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+    context_window: 128000
+    max_output_tokens: 16384
+    avg_latency_ms: 800
+    reliability_score: 0.95
+    supports_tools: true
+    supports_vision: true
+    tiers: [cheap, standard]
+
+  gpt-4o:
+    model_id: gpt-4o
+    provider: openai
+    input_per_mtok: 2.50
+    output_per_mtok: 10.00
+    context_window: 128000
+    max_output_tokens: 16384
+    avg_latency_ms: 2000
+    reliability_score: 0.97
+    supports_tools: true
+    supports_vision: true
+    tiers: [standard, premium]
+
+# Ordered fallback chains, consulted by the cost router on retryable failure.
+fallback_chains:
+  cheap: [claude-haiku-4-5, gpt-4o-mini]
+  standard: [claude-haiku-4-5, gpt-4o-mini, claude-sonnet-5]
+  premium: [claude-sonnet-5, gpt-4o, claude-opus-5]
+  critical: [claude-opus-5, claude-sonnet-5]

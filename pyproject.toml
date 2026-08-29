@@ -1,0 +1,101 @@
+[project]
+name = "agentforge"
+version = "0.1.0"
+description = "Durable agentic execution engine — event-sourced, crash-recoverable, cost-aware, human-in-the-loop."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Mohamed Nazif", email = "mohamednazif2001@gmail.com" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "redis>=5.2",
+    "httpx>=0.28",
+    "tenacity>=9.0",
+    "structlog>=24.4",
+    "python-json-logger>=2.0",
+    "orjson>=3.10",
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-exporter-otlp>=1.29",
+    "prometheus-client>=0.21",
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+agents = [
+    "langgraph>=0.2.60",
+    "langchain-core>=0.3.28",
+    "anthropic>=0.42",
+    "openai>=1.59",
+]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.122",
+    "anyio>=4.7",
+    "testcontainers[postgres,redis]>=4.9",
+    "respx>=0.22",
+]
+dev = [
+    "ruff>=0.8.4",
+    "mypy>=1.14",
+    "pyright>=1.1.390",
+    "types-redis",
+]
+
+[project.scripts]
+agentforge = "agentforge.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentforge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF", "PL", "TID", "PTH"]
+ignore = ["PLR0913"]  # allow wide constructor signatures in domain models
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "S101"]
+"migrations/**" = ["ALL"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+exclude = ["migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires Postgres/Redis (testcontainers)",
+    "eval: end-to-end evaluation scenarios",
+]
+
+[tool.coverage.run]
+source = ["src/agentforge"]
+branch = true
