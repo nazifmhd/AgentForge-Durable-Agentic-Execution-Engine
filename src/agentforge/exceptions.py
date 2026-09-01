@@ -26,6 +26,15 @@ class CyclicDependencyError(WorkflowDefinitionError):
     pass
 
 
+# --- Event stream / projection ---------------------------------------
+class EventStreamError(AgentForgeError):
+    """The event log is inconsistent (bad sequence, missing genesis, …)."""
+
+
+class InvalidStateTransition(EventStreamError):
+    """An event asked for a status transition the state machine forbids."""
+
+
 # --- Concurrency / persistence -----------------------------------------
 class ConflictError(AgentForgeError):
     """Optimistic-concurrency or lease-ownership conflict."""

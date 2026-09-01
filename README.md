@@ -4,8 +4,8 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 0 — scaffold.** The engine is being built phase by phase; see
-> [Roadmap](#roadmap).
+> Status: **Phase 1 — event-sourced core.** The engine is being built phase by
+> phase; see [Roadmap](#roadmap).
 
 ---
 
@@ -73,8 +73,8 @@ docs/adr/          # architecture decision records
 | Phase | Scope | Status |
 |------:|-------|--------|
 | 0 | Scaffold: tooling, CI, compose, Alembic, config | ✅ |
-| 1 | Event-sourced core + state machine + fold | ⏳ |
-| 2 | Executor, worker/leasing, checkpoint/recovery | |
+| 1 | Event-sourced core: domain models, DAG, event vocabulary, `fold`, snapshots, `EventStore` | ✅ |
+| 2 | Executor, worker/leasing, checkpoint/recovery | ⏳ |
 | 3 | Side-effect guard, DLQ, compensation | |
 | 4 | Cost router + pre-flight budget + LLM providers | |
 | 5 | Escalation / HITL + timers + WebSocket | |

@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,12 +26,10 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     # --- Persistence -------------------------------------------------------
-    database_url: PostgresDsn = Field(
-        default="postgresql+asyncpg://agentforge:agentforge@localhost:5432/agentforge",
-    )
+    database_url: str = "postgresql+asyncpg://agentforge:agentforge@localhost:5432/agentforge"
     database_pool_size: int = 10
     database_max_overflow: int = 5
-    redis_url: RedisDsn = Field(default="redis://localhost:6379/0")
+    redis_url: str = "redis://localhost:6379/0"
 
     # --- Worker / durability --------------------------------------------------
     worker_id: str | None = None  # defaults to hostname:pid at runtime
@@ -58,7 +56,7 @@ class Settings(BaseSettings):
     otel_service_name: str = "agentforge"
 
     # --- API ---------------------------------------------------------------
-    api_host: str = "0.0.0.0"  # noqa: S104 — bind-all is intentional in containers
+    api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_allow_origins: list[str] = Field(default_factory=list)
 
@@ -72,7 +70,7 @@ class Settings(BaseSettings):
     @property
     def sync_database_url(self) -> str:
         """psycopg-style URL for Alembic migrations."""
-        return str(self.database_url).replace("+asyncpg", "+psycopg")
+        return self.database_url.replace("+asyncpg", "+psycopg")
 
 
 @lru_cache

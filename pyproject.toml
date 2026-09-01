@@ -68,11 +68,15 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF", "PL", "TID", "PTH"]
-ignore = ["PLR0913"]  # allow wide constructor signatures in domain models
+ignore = [
+    "PLR0913",  # wide constructor signatures are fine for domain models / services
+    "PLW0603",  # module-level singletons (engine, logging config) use `global` deliberately
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004", "S101"]
 "migrations/**" = ["ALL"]
+"src/agentforge/cli.py" = ["PLC0415"]  # lazy imports keep CLI start-up cheap
 
 [tool.mypy]
 python_version = "3.11"
