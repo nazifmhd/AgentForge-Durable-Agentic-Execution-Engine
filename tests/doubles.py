@@ -264,6 +264,44 @@ class RecordingActionProvider:
         return EffectResult(ok=True, data={"undone": req.effect_name})
 
 
+class FakeLLMProvider:
+    """Test LLM provider: no network. Configurable failures and token usage."""
+
+    def __init__(
+        self,
+        name: str = "anthropic",
+        *,
+        fail_times: int = 0,
+        tokens_in: int = 100,
+        tokens_out: int = 50,
+        text: str = "ok",
+    ) -> None:
+        self.name = name
+        self._fail_times = fail_times
+        self._tokens_in = tokens_in
+        self._tokens_out = tokens_out
+        self._text = text
+        self.calls: list[Any] = []
+
+    async def complete(self, req: Any) -> Any:
+        from agentforge.exceptions import RateLimitError
+        from agentforge.integrations.llm.base import LLMResponse
+
+        self.calls.append(req)
+        if len(self.calls) <= self._fail_times:
+            raise RateLimitError("fake 429")
+        return LLMResponse(
+            model_id=req.model_id,
+            text=self._text,
+            tokens_input=self._tokens_in,
+            tokens_output=self._tokens_out,
+            stop_reason="end_turn",
+        )
+
+    async def count_tokens(self, req: Any) -> int | None:
+        return None
+
+
 async def seed_instance(
     journal: InMemoryJournal,
     definition: WorkflowDefinition,

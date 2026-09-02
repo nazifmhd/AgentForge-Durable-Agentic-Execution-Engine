@@ -26,6 +26,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.29",
     "prometheus-client>=0.21",
     "typer>=0.15",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,7 @@ dev = [
     "mypy>=1.14",
     "pyright>=1.1.390",
     "types-redis",
+    "types-pyyaml",
 ]
 
 [project.scripts]
@@ -77,6 +79,7 @@ ignore = [
 "tests/**" = ["PLR2004", "S101", "PLC0415"]
 "migrations/**" = ["ALL"]
 "src/agentforge/cli.py" = ["PLC0415"]  # lazy imports keep CLI start-up cheap
+"src/agentforge/integrations/llm/**" = ["PLC0415"]  # SDKs live in the 'agents' extra — import lazily
 "src/agentforge/core/driver.py" = ["PLR0911", "PLR0912"]  # the workflow state machine is branchy by nature
 
 [tool.mypy]

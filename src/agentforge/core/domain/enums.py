@@ -113,7 +113,13 @@ STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
         {StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.FAILED}
     ),
     StepStatus.FAILED: frozenset(
-        {StepStatus.READY, StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.COMPENSATED}
+        {
+            StepStatus.READY,
+            StepStatus.RUNNING,
+            StepStatus.SKIPPED,
+            StepStatus.COMPENSATED,
+            StepStatus.WAITING_APPROVAL,  # held for a human (e.g. budget refusal)
+        }
     ),
     StepStatus.COMPLETED: frozenset({StepStatus.COMPENSATED}),
     StepStatus.SKIPPED: frozenset(),

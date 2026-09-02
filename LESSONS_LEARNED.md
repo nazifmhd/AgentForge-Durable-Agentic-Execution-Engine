@@ -75,3 +75,24 @@ Real problems hit during the build and how they were solved. Added as they happe
   driver escalates to `WAITING_APPROVAL` with a `compensation_failed` escalation.
 - **Workflow-level escalations carry no step.** `EscalationRaised(step_id="")` needed a
   guard in the fold so it doesn't materialise a phantom step named `""`.
+
+## Phase 4
+
+- **Context-window and max-output filters bite before the budget filter.** Two router
+  tests were "over budget" in intent but actually hit `NoEligibleModelError` first because
+  the expected output exceeded the model's `max_output_tokens` / context window. Order the
+  filters deliberately and write budget tests with an output size the model can actually
+  serve.
+- **A budget refusal is not a workflow bug.** `CostAwareRouter` raises `BudgetExceededError`
+  *before* any paid call; the driver catches that specific `error_type` and escalates
+  `cost_threshold` → `WAITING_APPROVAL` (raise the limit, resume) regardless of the
+  `on_failure` policy — pausing or dead-lettering would be the wrong response.
+- **`FAILED → WAITING_APPROVAL` had to be added to the step transition table** so a
+  budget-refused step can be held for a human without first bouncing through `READY`.
+- **SDKs go in the `agents` extra, so provider modules import them lazily.** `import agentforge`
+  never needs `anthropic`/`openai`; `build_provider(name)` and each provider's `_load_sdk()`
+  do the import at construction and raise a clear `ConfigurationError` if the extra's missing.
+- **Tenant-daily budget needs its own ledger.** Summing `instance_index.cost_accumulated`
+  by date is wrong (that's lifetime cost). Added `tenant_cost_ledger` (one row per
+  tenant/day, `INSERT … ON CONFLICT DO UPDATE SET cost = cost + n`), bumped by the driver
+  right after it appends the `CostCharged` events.

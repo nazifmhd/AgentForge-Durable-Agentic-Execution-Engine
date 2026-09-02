@@ -15,12 +15,16 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from agentforge.core.domain.enums import CostTier
 from agentforge.core.ports import SYSTEM_CLOCK, Clock
 from agentforge.exceptions import ConfigurationError
 
 if TYPE_CHECKING:
+    from agentforge.core.cost.budget import BudgetView
+    from agentforge.core.llm_client import LLMClient
     from agentforge.core.side_effects import EffectOutcome, SideEffectGuard
     from agentforge.integrations.actions.base import EffectResult
+    from agentforge.integrations.llm.base import LLMMessage, LLMResponse
 
 
 @dataclass
@@ -42,6 +46,8 @@ class StepContext:
     instance_context: dict[str, Any]
     clock: Clock = SYSTEM_CLOCK
     guard: SideEffectGuard | None = None
+    llm_client: LLMClient | None = None
+    budget: BudgetView | None = None
     _charges: list[CostEntry] = field(default_factory=list)
     _effects: list[EffectOutcome] = field(default_factory=list)
 
@@ -76,6 +82,42 @@ class StepContext:
         )
         self._effects.append(outcome)
         return outcome.result
+
+    async def llm(
+        self,
+        messages: list[LLMMessage],
+        *,
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tier: CostTier | str = "standard",
+        max_tokens: int = 4096,
+        task_type: str = "general",
+        expected_output_tokens: int | None = None,
+        reliability_floor: float = 0.0,
+    ) -> LLMResponse:
+        """Cost-aware LLM call: routes to the cheapest capable model within budget,
+        charges the actual cost, and returns the completion."""
+        if self.llm_client is None:
+            raise ConfigurationError("step attempted an LLM call but no LLMClient is wired")
+        completion = await self.llm_client.complete(
+            messages=messages,
+            system=system,
+            tools=tools,
+            tier=CostTier(tier) if isinstance(tier, str) else tier,
+            max_tokens=max_tokens,
+            task_type=task_type or self.agent_type,
+            expected_output_tokens=expected_output_tokens,
+            reliability_floor=reliability_floor,
+            budget=self.budget,
+        )
+        r = completion.response
+        self.charge(
+            completion.cost_usd,
+            model=r.model_id,
+            tokens_input=r.tokens_input,
+            tokens_output=r.tokens_output,
+        )
+        return r
 
     @property
     def charges(self) -> list[CostEntry]:

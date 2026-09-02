@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from agentforge.core.cost.budget import BudgetService
 from agentforge.core.dead_letter import DeadLetterService
 from agentforge.core.domain.definition import WorkflowDefinition, WorkflowStep
 from agentforge.core.domain.enums import OnFailure, StepStatus, WorkflowStatus
@@ -32,6 +33,7 @@ from agentforge.core.events import BaseEvent, fold
 from agentforge.core.events import types as E
 from agentforge.core.executor import StepExecutor, StepOutcome
 from agentforge.core.leasing import Guard, Lease
+from agentforge.core.llm_client import LLMClient
 from agentforge.core.persistence.protocols import DefinitionSource, EventJournal
 from agentforge.core.ports import SYSTEM_CLOCK, UUID_GENERATOR, Clock, IdGenerator
 from agentforge.core.runners import StepContext
@@ -88,6 +90,8 @@ class WorkflowDriver:
         dead_letters: DeadLetterService,
         *,
         side_effects: SideEffectGuard | None = None,
+        llm: LLMClient | None = None,
+        budget: BudgetService | None = None,
         clock: Clock = SYSTEM_CLOCK,
         ids: IdGenerator = UUID_GENERATOR,
     ) -> None:
@@ -96,6 +100,8 @@ class WorkflowDriver:
         self._executor = executor
         self._dead_letters = dead_letters
         self._side_effects = side_effects
+        self._llm = llm
+        self._budget = budget
         self._clock = clock
         self._ids = ids
 
@@ -291,6 +297,12 @@ class WorkflowDriver:
             )
         instance = await self._append(instance, definition, started, guard)
 
+        budget_view = (
+            await self._budget.view(instance, now=self._clock.now())
+            if self._budget is not None
+            else None
+        )
+
         async def _one(sid: str, att: int) -> tuple[str, int, WorkflowStep, StepOutcome]:
             step = definition.step(sid)
             ctx = StepContext(
@@ -303,6 +315,8 @@ class WorkflowDriver:
                 instance_context=dict(instance.context),
                 clock=self._clock,
                 guard=self._side_effects,
+                llm_client=self._llm,
+                budget=budget_view,
             )
             outcome = await self._executor.run_attempt(ctx, timeout_seconds=step.timeout_seconds)
             return sid, att, step, outcome
@@ -371,6 +385,11 @@ class WorkflowDriver:
                 )
         instance = await self._append(instance, definition, drafts, guard)
 
+        if self._budget is not None:
+            spent = sum(c.amount_usd for _, _, _, o in results for c in o.charges)
+            if spent > 0:
+                await self._budget.record_spend(instance.tenant_id, spent, now=self._clock.now())
+
         retry_drafts: list[BaseEvent] = []
         now = self._clock.now()
         for sid, att, step, outcome in results:
@@ -430,6 +449,12 @@ class WorkflowDriver:
     ) -> DriveReport:
         step_id, reason = failure
 
+        # a budget refusal is not a workflow bug — surface it for a human to raise
+        # the limit and resume, regardless of on_failure policy.
+        st = instance.step_states.get(step_id)
+        if st is not None and st.error_type == "BudgetExceededError":
+            return await self._escalate_cost_threshold(instance, definition, step_id, guard)
+
         if definition.on_failure == OnFailure.ROLLBACK:
             return await self._rollback(instance, definition, reason, guard)
 
@@ -454,6 +479,34 @@ class WorkflowDriver:
             reason=reason,
         )
         return DriveReport(instance.instance_id, DriveResult.PAUSED)
+
+    async def _escalate_cost_threshold(
+        self,
+        instance: WorkflowInstance,
+        definition: WorkflowDefinition,
+        step_id: str,
+        guard: Guard,
+    ) -> DriveReport:
+        drafts: list[BaseEvent] = [
+            self._event(
+                instance,
+                E.EscalationRaised,
+                escalation_id=self._ids.new_id(),
+                step_id=step_id,
+                reason="cost_threshold",
+                recommendation="raise the workflow / tenant budget, then resume",
+                auto_action="abort",
+            ),
+            self._event(
+                instance,
+                E.InstanceStatusChanged,
+                from_status=WorkflowStatus.RUNNING,
+                to_status=WorkflowStatus.WAITING_APPROVAL,
+                reason="budget exceeded (pre-flight)",
+            ),
+        ]
+        await self._append(instance, definition, drafts, guard)
+        return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _rollback(
         self,

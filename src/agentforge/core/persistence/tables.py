@@ -10,12 +10,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKeyConstraint,
@@ -184,6 +185,18 @@ class SideEffectOutboxRow(Base):
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     compensation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TenantCostLedgerRow(Base):
+    __tablename__ = "tenant_cost_ledger"
+    __table_args__ = (PrimaryKeyConstraint("tenant_id", "day"),)
+
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    day: Mapped[date] = mapped_column(Date)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
