@@ -44,6 +44,7 @@ from agentforge.exceptions import (
     ConflictError,
     LeaseLostError,
 )
+from agentforge.integrations.notifications import Notification, Notifier
 from agentforge.logging import get_logger
 
 log = get_logger("driver")
@@ -92,6 +93,7 @@ class WorkflowDriver:
         side_effects: SideEffectGuard | None = None,
         llm: LLMClient | None = None,
         budget: BudgetService | None = None,
+        notifier: Notifier | None = None,
         clock: Clock = SYSTEM_CLOCK,
         ids: IdGenerator = UUID_GENERATOR,
     ) -> None:
@@ -102,8 +104,28 @@ class WorkflowDriver:
         self._side_effects = side_effects
         self._llm = llm
         self._budget = budget
+        self._notifier = notifier
         self._clock = clock
         self._ids = ids
+
+    async def _notify(self, instance: WorkflowInstance, reason: str, detail: str) -> None:
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.notify(
+                Notification(
+                    channel="escalations",
+                    subject=f"Approval needed: {reason} on {instance.instance_id}",
+                    body=detail,
+                    metadata={
+                        "instance_id": instance.instance_id,
+                        "tenant_id": instance.tenant_id,
+                        "reason": reason,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001 - notification is best effort
+            log.warning("escalation_notify_failed", instance_id=instance.instance_id)
 
     async def drive(self, lease: Lease, guard: Guard) -> DriveReport:
         definition = await self._definitions.get(
@@ -506,6 +528,7 @@ class WorkflowDriver:
             ),
         ]
         await self._append(instance, definition, drafts, guard)
+        await self._notify(instance, "cost_threshold", "a step's projected cost exceeds the budget")
         return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _rollback(
@@ -620,6 +643,7 @@ class WorkflowDriver:
             ),
         ]
         await self._append(instance, definition, drafts, guard)
+        await self._notify(instance, "compensation_failed", detail)
         return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _escalate_for_approval(
@@ -629,8 +653,10 @@ class WorkflowDriver:
         step_ids: list[str],
         guard: Guard,
     ) -> DriveReport:
+        now = self._clock.now()
         drafts: list[BaseEvent] = []
         for sid in step_ids:
+            step = definition.step(sid)
             if instance.step_states[sid].status == StepStatus.PENDING:
                 drafts.append(
                     self._event(
@@ -642,6 +668,11 @@ class WorkflowDriver:
                         reason="dependencies satisfied",
                     )
                 )
+            deadline = (
+                now + timedelta(seconds=step.approval_timeout_seconds)
+                if step.approval_timeout_seconds
+                else None
+            )
             drafts.append(
                 self._event(
                     instance,
@@ -649,7 +680,8 @@ class WorkflowDriver:
                     escalation_id=self._ids.new_id(),
                     step_id=sid,
                     reason="explicit_approval",
-                    auto_action="abort",
+                    deadline=deadline,
+                    auto_action=step.approval_auto_action,
                 )
             )
         drafts.append(
@@ -662,6 +694,9 @@ class WorkflowDriver:
             )
         )
         await self._append(instance, definition, drafts, guard)
+        await self._notify(
+            instance, "explicit_approval", f"steps awaiting sign-off: {', '.join(step_ids)}"
+        )
         return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _block_on_budget(

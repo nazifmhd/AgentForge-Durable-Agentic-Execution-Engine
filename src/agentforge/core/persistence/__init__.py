@@ -9,6 +9,7 @@ from agentforge.core.persistence.protocols import (
 )
 from agentforge.core.persistence.tables import (
     DeadLetterRow,
+    EscalationRow,
     InstanceIndexRow,
     InstanceLeaseRow,
     InstanceSnapshotRow,
@@ -22,6 +23,7 @@ __all__ = [
     "DeadLetterRow",
     "DefinitionRepository",
     "DefinitionSource",
+    "EscalationRow",
     "EventJournal",
     "EventStore",
     "InstanceIndexRow",

@@ -18,6 +18,7 @@ from datetime import datetime
 
 from agentforge.config import settings
 from agentforge.core.driver import DriveResult, WorkflowDriver
+from agentforge.core.escalation import EscalationController
 from agentforge.core.leasing import Lease
 from agentforge.core.persistence.protocols import LeaseStore
 from agentforge.core.ports import SYSTEM_CLOCK, Clock
@@ -41,6 +42,8 @@ class Worker:
         poll_interval_seconds: float = 1.0,
         heartbeat_seconds: float = 10.0,
         recovery_interval_seconds: float = 15.0,
+        escalations: EscalationController | None = None,
+        escalation_sweep_seconds: float = 20.0,
         clock: Clock = SYSTEM_CLOCK,
     ) -> None:
         self.worker_id = worker_id or settings.worker_id or default_worker_id()
@@ -50,6 +53,8 @@ class Worker:
         self._poll = poll_interval_seconds
         self._heartbeat_seconds = heartbeat_seconds
         self._recovery_seconds = recovery_interval_seconds
+        self._escalations = escalations
+        self._escalation_sweep_seconds = escalation_sweep_seconds
         self._clock = clock
 
         self._active: dict[str, asyncio.Task[None]] = {}
@@ -59,18 +64,23 @@ class Worker:
     # --- lifecycle ---------------------------------------------------
     async def run(self) -> None:
         log.info("worker_start", worker_id=self.worker_id, concurrency=self._concurrency)
-        hb = asyncio.create_task(self._heartbeat_loop(), name="heartbeat")
-        rec = asyncio.create_task(self._recovery_loop(), name="recovery")
+        background = [
+            asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
+            asyncio.create_task(self._recovery_loop(), name="recovery"),
+        ]
+        if self._escalations is not None:
+            background.append(
+                asyncio.create_task(self._escalation_sweep_loop(), name="escalation-sweep")
+            )
         try:
             await self._claim_loop()
         finally:
             self._stopping.set()
-            hb.cancel()
-            rec.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await hb
-            with contextlib.suppress(asyncio.CancelledError):
-                await rec
+            for task in background:
+                task.cancel()
+            for task in background:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await self._drain()
         log.info("worker_stopped", worker_id=self.worker_id)
 
@@ -132,6 +142,19 @@ class Worker:
             if expired:
                 log.info("expired_leases_available", count=len(expired))
                 self._wakeup.set()
+
+    async def _escalation_sweep_loop(self) -> None:
+        assert self._escalations is not None
+        while True:
+            await asyncio.sleep(self._escalation_sweep_seconds)
+            try:
+                fired = await self._escalations.expire_due(self._now())
+            except Exception:
+                log.exception("escalation_sweep_failed")
+                continue
+            if fired:
+                log.info("escalations_auto_actioned", count=len(fired))
+                self._wakeup.set()  # some instances are RUNNING again
 
     # --- driving --------------------------------------------------
     def _spawn(self, lease: Lease) -> None:

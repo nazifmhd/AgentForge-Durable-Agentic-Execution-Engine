@@ -4,8 +4,8 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 4 — cost-aware routing & budgets.** The engine is being built
-> phase by phase; see [Roadmap](#roadmap).
+> Status: **Phase 5 — human-in-the-loop.** The engine is being built phase by
+> phase; see [Roadmap](#roadmap).
 
 ---
 
@@ -77,8 +77,8 @@ docs/adr/          # architecture decision records
 | 2 | Step executor, worker leasing + heartbeat + fencing, workflow driver, crash recovery | ✅ |
 | 3 | Side-effect guard (outbox + provider idempotency), `ActionProvider`, compensation/rollback, DLQ requeue | ✅ |
 | 4 | Config-driven model registry, cost-aware router, pre-flight budget (workflow + tenant/day), LLM providers | ✅ |
-| 5 | Escalation / HITL + timers + WebSocket | ⏳ |
-| 6 | FastAPI surface, auth, multi-tenancy, rate limiting | |
+| 5 | Escalation controller (resolve / skip / abort / budget-bump), deadline auto-actions, notifications, event pub/sub for streaming | ✅ |
+| 6 | FastAPI surface (incl. WebSocket instance stream), auth, multi-tenancy, rate limiting | ⏳ |
 | 7 | LangGraph agent runtime + base agents | |
 | 8 | Sales Intelligence reference implementation | |
 | 9 | Observability wiring, n8n adapter | |

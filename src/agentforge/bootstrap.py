@@ -14,6 +14,7 @@ from agentforge.core.cost.registry import ModelRegistry
 from agentforge.core.cost.router import CostAwareRouter
 from agentforge.core.dead_letter import DeadLetterService
 from agentforge.core.driver import WorkflowDriver
+from agentforge.core.escalation import EscalationController, PgEscalationReadStore
 from agentforge.core.executor import StepExecutor
 from agentforge.core.instances import InstanceService
 from agentforge.core.leasing import PgLeaseStore
@@ -21,13 +22,21 @@ from agentforge.core.llm_client import LLMClient
 from agentforge.core.outbox import PgOutboxStore
 from agentforge.core.persistence.definition_repo import DefinitionRepository
 from agentforge.core.persistence.event_store import EventStore
+from agentforge.core.pubsub import NoopPublisher, RedisEventPublisher
 from agentforge.core.recovery import RecoveryService
 from agentforge.core.runners import StepRegistry, default_registry
 from agentforge.core.side_effects import SideEffectGuard
 from agentforge.db import get_sessionmaker
 from agentforge.integrations.actions import NoopActionProvider, ProviderRegistry
 from agentforge.integrations.llm import LLMProviderRegistry, build_provider
+from agentforge.integrations.notifications import (
+    LogNotifier,
+    MultiNotifier,
+    Notifier,
+    WebhookNotifier,
+)
 from agentforge.logging import get_logger
+from agentforge.redis_client import get_redis
 from agentforge.worker import Worker
 
 log = get_logger("bootstrap")
@@ -49,6 +58,8 @@ class Engine:
     router: CostAwareRouter
     llm: LLMClient
     budget: BudgetService
+    escalations: EscalationController
+    notifier: Notifier
 
 
 def _build_llm_providers() -> LLMProviderRegistry:
@@ -60,6 +71,15 @@ def _build_llm_providers() -> LLMProviderRegistry:
     if "anthropic" not in reg and "openai" not in reg:
         log.warning("no_llm_provider_keys_configured")
     return reg
+
+
+def _build_notifier() -> Notifier:
+    channels: dict[str, str] = {}
+    if settings.n8n_base_url:
+        channels["escalations"] = f"{settings.n8n_base_url}/webhook/notify-escalations"
+    if channels:
+        return MultiNotifier(LogNotifier(), WebhookNotifier(channels))
+    return LogNotifier()
 
 
 def build_engine(
@@ -77,13 +97,22 @@ def build_engine(
     llm_providers = _build_llm_providers()
     llm = LLMClient(router, models, llm_providers)
     budget = BudgetService(PgBudgetLedger(sm), tenant_daily_limit_usd=settings.org_daily_budget_usd)
+    notifier = _build_notifier()
 
-    events = EventStore(sm)
+    publisher: RedisEventPublisher | NoopPublisher
+    try:
+        publisher = RedisEventPublisher(get_redis())
+    except Exception:  # noqa: BLE001 - degrade to no live updates
+        log.warning("redis_publisher_unavailable")
+        publisher = NoopPublisher()
+
+    events = EventStore(sm, publisher=publisher)
     definitions = DefinitionRepository(sm)
     dead_letters = DeadLetterService(sm)
     leases = PgLeaseStore(sm, lease_seconds=settings.lease_seconds)
     recovery = RecoveryService(sm, stale_after_seconds=settings.recovery_scan_interval_seconds * 4)
     side_effects = SideEffectGuard(PgOutboxStore(sm), providers)
+    escalations = EscalationController(PgEscalationReadStore(sm), events, notifier=notifier)
     driver = WorkflowDriver(
         events,
         definitions,
@@ -92,6 +121,7 @@ def build_engine(
         side_effects=side_effects,
         llm=llm,
         budget=budget,
+        notifier=notifier,
     )
     return Engine(
         events=events,
@@ -108,6 +138,8 @@ def build_engine(
         router=router,
         llm=llm,
         budget=budget,
+        escalations=escalations,
+        notifier=notifier,
     )
 
 
@@ -119,4 +151,5 @@ def build_worker(engine: Engine | None = None) -> Worker:
         concurrency=settings.max_concurrent_steps_per_worker,
         heartbeat_seconds=settings.lease_heartbeat_seconds,
         recovery_interval_seconds=settings.recovery_scan_interval_seconds,
+        escalations=engine.escalations,
     )

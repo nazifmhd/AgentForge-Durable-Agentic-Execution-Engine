@@ -15,6 +15,11 @@ from agentforge.core.domain import (
     WorkflowStep,
 )
 from agentforge.core.driver import DriveReport, DriveResult, WorkflowDriver
+from agentforge.core.escalation import (
+    EscalationController,
+    EscalationReason,
+    PendingEscalation,
+)
 from agentforge.core.events import BaseEvent, Snapshot, fold
 from agentforge.core.executor import StepExecutor
 from agentforge.core.instances import InstanceService
@@ -42,12 +47,15 @@ __all__ = [
     "DriveResult",
     "EffectOutcome",
     "EffectStatus",
+    "EscalationController",
+    "EscalationReason",
     "EventStore",
     "InstanceService",
     "LLMClient",
     "LLMCompletion",
     "Lease",
     "ModelRegistry",
+    "PendingEscalation",
     "PgLeaseStore",
     "RecoveryService",
     "RetryPolicy",

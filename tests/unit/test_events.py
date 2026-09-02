@@ -21,10 +21,11 @@ def _kw(**extra: object) -> dict[str, object]:
 
 
 def test_every_event_type_is_registered() -> None:
-    # 22 concrete events in the union
-    assert len(EVENT_TYPES) == 22
+    # 23 concrete events in the union
+    assert len(EVENT_TYPES) == 23
     assert EVENT_TYPES["StepCompleted"] is E.StepCompleted
     assert EVENT_TYPES["WorkflowRequeued"] is E.WorkflowRequeued
+    assert EVENT_TYPES["WorkflowBudgetAdjusted"] is E.WorkflowBudgetAdjusted
 
 
 def test_discriminated_roundtrip() -> None:

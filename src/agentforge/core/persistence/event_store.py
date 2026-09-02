@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,18 +22,27 @@ from agentforge.core.events import (
     parse_event,
     should_snapshot,
 )
+from agentforge.core.events import types as ET
 from agentforge.core.leasing import Guard
 from agentforge.core.persistence.tables import (
+    EscalationRow,
     InstanceIndexRow,
     InstanceSnapshotRow,
     WorkflowEventRow,
 )
+from agentforge.core.pubsub import EventPublisher, NoopPublisher
 from agentforge.exceptions import ConflictError, EventStreamError
 
 
 class EventStore:
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        *,
+        publisher: EventPublisher | None = None,
+    ) -> None:
         self._sm = sessionmaker
+        self._publisher = publisher or NoopPublisher()
 
     # --- write path ------------------------------------------------------
     async def append(
@@ -140,13 +149,58 @@ class EventStore:
 
             instance = await self._project(session, instance_id, tenant_id)
             await self._upsert_index(session, instance, next_wakeup_at=next_wakeup_at)
+            await self._project_escalations(session, events)
 
             snap = await self._load_snapshot(session, instance_id)
             base_version = snap.version if snap else 0
             if snap is None or should_snapshot(base_version, instance.version):
                 await self._write_snapshot(session, instance, events[-1].occurred_at)
 
+        await self._publisher.publish(instance_id, tenant_id, events)
         return events[-1].sequence, events
+
+    async def _project_escalations(self, session: AsyncSession, events: list[BaseEvent]) -> None:
+        for ev in events:
+            if isinstance(ev, ET.EscalationRaised):
+                stmt = pg_insert(EscalationRow).values(
+                    escalation_id=ev.escalation_id,
+                    instance_id=ev.instance_id,
+                    tenant_id=ev.tenant_id,
+                    step_id=ev.step_id,
+                    reason=ev.reason,
+                    recommendation=ev.recommendation,
+                    confidence=ev.confidence,
+                    options=ev.options,
+                    auto_action=ev.auto_action,
+                    deadline=ev.deadline,
+                    status="pending",
+                    created_at=ev.occurred_at,
+                )
+                await session.execute(
+                    stmt.on_conflict_do_nothing(index_elements=[EscalationRow.escalation_id])
+                )
+            elif isinstance(ev, ET.EscalationResolved):
+                await session.execute(
+                    update(EscalationRow)
+                    .where(EscalationRow.escalation_id == ev.escalation_id)
+                    .values(
+                        status="resolved",
+                        resolution=ev.resolution,
+                        resolved_by=ev.resolved_by,
+                        resolved_at=ev.occurred_at,
+                    )
+                )
+            elif isinstance(ev, ET.EscalationTimedOut):
+                await session.execute(
+                    update(EscalationRow)
+                    .where(EscalationRow.escalation_id == ev.escalation_id)
+                    .values(
+                        status="timed_out",
+                        resolution=ev.auto_action,
+                        resolved_by="auto",
+                        resolved_at=ev.occurred_at,
+                    )
+                )
 
     # --- read path -----------------------------------------------------
     async def load(self, instance_id: str, tenant_id: str, *, after: int = 0) -> list[BaseEvent]:

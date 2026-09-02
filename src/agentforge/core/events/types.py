@@ -72,6 +72,16 @@ class WorkflowRequeued(BaseEvent):
     dlq_id: int | None = None
 
 
+class WorkflowBudgetAdjusted(BaseEvent):
+    """Operator raised (or lowered) the per-workflow budget, e.g. resolving a
+    ``cost_threshold`` escalation."""
+
+    event_type: Literal["WorkflowBudgetAdjusted"] = "WorkflowBudgetAdjusted"
+    new_limit_usd: float | None
+    adjusted_by: str = "operator"
+    reason: str | None = None
+
+
 # --- step execution ----------------------------------------------------
 class StepStatusChanged(BaseEvent):
     """Generic step transition (PENDING->READY, etc.) not covered by a richer event."""
@@ -231,6 +241,7 @@ AnyEvent = Annotated[
     | InstanceCompleted
     | InstanceFailed
     | WorkflowRequeued
+    | WorkflowBudgetAdjusted
     | StepStatusChanged
     | StepStarted
     | StepCompleted
@@ -270,6 +281,7 @@ EVENT_TYPES: dict[str, type[BaseEvent]] = {
         InstanceCompleted,
         InstanceFailed,
         WorkflowRequeued,
+        WorkflowBudgetAdjusted,
         StepStatusChanged,
         StepStarted,
         StepCompleted,

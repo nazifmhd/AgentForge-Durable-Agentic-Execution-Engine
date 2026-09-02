@@ -200,3 +200,32 @@ class TenantCostLedgerRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class EscalationRow(Base):
+    """Read model for human-in-the-loop: queryable pending-escalation list and
+    the deadline sweeper's work set. Rebuilt from ``Escalation*`` events."""
+
+    __tablename__ = "escalations"
+    __table_args__ = (
+        PrimaryKeyConstraint("escalation_id"),
+        Index("ix_esc_tenant_status", "tenant_id", "status"),
+        Index("ix_esc_deadline", "status", "deadline"),
+        Index("ix_esc_instance", "instance_id"),
+    )
+
+    escalation_id: Mapped[str] = mapped_column(String(64))
+    instance_id: Mapped[str] = mapped_column(String(36))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    step_id: Mapped[str] = mapped_column(String(128))
+    reason: Mapped[str] = mapped_column(String(64))
+    recommendation: Mapped[str] = mapped_column(String, default="")
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    options: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    auto_action: Mapped[str] = mapped_column(String(16), default="abort")
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -157,6 +157,15 @@ def test_escalation_lifecycle() -> None:
     assert inst2.context["note"] == "ok"
 
 
+def test_budget_adjusted_event_updates_limit() -> None:
+    b = StreamBuilder().created(
+        workflow_id="wf-linear", workflow_version="1.0.0", budget_limit_usd=0.5
+    )
+    b.raw(E.WorkflowBudgetAdjusted, new_limit_usd=9.0, adjusted_by="ops")
+    inst = fold(b.events, definition=linear_workflow(1))
+    assert inst.budget_limit_usd == 9.0
+
+
 def test_ready_steps_and_settled_helpers() -> None:
     defn = linear_workflow(3)
     b = StreamBuilder().created().wf_status("pending", "running")

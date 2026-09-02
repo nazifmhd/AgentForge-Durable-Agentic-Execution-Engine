@@ -111,6 +111,10 @@ def _on_requeued(inst: WorkflowInstance, e: E.WorkflowRequeued, _: object) -> No
         st.error_message = None
 
 
+def _on_budget_adjusted(inst: WorkflowInstance, e: E.WorkflowBudgetAdjusted, _: object) -> None:
+    inst.budget_limit_usd = e.new_limit_usd
+
+
 def _on_step_status(inst: WorkflowInstance, e: E.StepStatusChanged, _: object) -> None:
     st = _ensure_step(inst, e.step_id)
     if e.from_status != st.status:
@@ -279,6 +283,7 @@ _HANDLERS: dict[type[E.BaseEvent], _Handler] = {
     E.InstanceCompleted: _on_completed,
     E.InstanceFailed: _on_failed,
     E.WorkflowRequeued: _on_requeued,
+    E.WorkflowBudgetAdjusted: _on_budget_adjusted,
     E.StepStatusChanged: _on_step_status,
     E.StepStarted: _on_step_started,
     E.StepCompleted: _on_step_completed,

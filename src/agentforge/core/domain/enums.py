@@ -110,7 +110,12 @@ STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
         }
     ),
     StepStatus.WAITING_APPROVAL: frozenset(
-        {StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.FAILED}
+        {
+            StepStatus.READY,  # approved -> back to the ready queue
+            StepStatus.RUNNING,
+            StepStatus.SKIPPED,
+            StepStatus.FAILED,
+        }
     ),
     StepStatus.FAILED: frozenset(
         {

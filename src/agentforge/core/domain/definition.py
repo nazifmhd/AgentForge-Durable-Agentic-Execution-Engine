@@ -45,6 +45,10 @@ class WorkflowStep(BaseModel):
     side_effects: tuple[str, ...] = ()
     compensation_action: str | None = None
     requires_approval: bool = False
+    # If an approval isn't given within this window, the auto-action fires.
+    # None = wait for a human indefinitely.
+    approval_timeout_seconds: int | None = Field(default=None, gt=0)
+    approval_auto_action: str = Field(default="abort", pattern="^(approve|skip|abort)$")
     dependencies: tuple[str, ...] = ()
 
 

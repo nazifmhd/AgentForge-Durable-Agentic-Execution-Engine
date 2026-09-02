@@ -24,6 +24,22 @@ _RUNNABLE = {"pending", "running", "retrying"}
 
 
 @dataclass(slots=True)
+class _EscSnap:
+    escalation_id: str
+    instance_id: str
+    tenant_id: str
+    step_id: str
+    reason: str
+    recommendation: str
+    confidence: float
+    options: list[dict[str, Any]]
+    auto_action: str
+    deadline: datetime | None
+    status: str
+    created_at: datetime
+
+
+@dataclass(slots=True)
 class _IndexEntry:
     instance_id: str
     tenant_id: str
@@ -39,8 +55,37 @@ class InMemoryJournal:
     def __init__(self) -> None:
         self._events: dict[str, list[BaseEvent]] = {}
         self.index: dict[str, _IndexEntry] = {}
+        self.escalations: dict[str, Any] = {}  # escalation_id -> _EscSnap
         self.append_calls = 0
         self.now: datetime = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def _project_escalations(self, events: Sequence[BaseEvent]) -> None:
+        from agentforge.core.events import types as ET
+
+        for ev in events:
+            if isinstance(ev, ET.EscalationRaised):
+                self.escalations[ev.escalation_id] = _EscSnap(
+                    escalation_id=ev.escalation_id,
+                    instance_id=ev.instance_id,
+                    tenant_id=ev.tenant_id,
+                    step_id=ev.step_id,
+                    reason=ev.reason,
+                    recommendation=ev.recommendation,
+                    confidence=ev.confidence,
+                    options=list(ev.options),
+                    auto_action=ev.auto_action,
+                    deadline=ev.deadline,
+                    status="pending",
+                    created_at=ev.occurred_at,
+                )
+            elif isinstance(ev, ET.EscalationResolved):
+                snap = self.escalations.get(ev.escalation_id)
+                if snap:
+                    snap.status = "resolved"
+            elif isinstance(ev, ET.EscalationTimedOut):
+                snap = self.escalations.get(ev.escalation_id)
+                if snap:
+                    snap.status = "timed_out"
 
     async def append_new(
         self,
@@ -65,6 +110,7 @@ class InMemoryJournal:
         ]
         stream.extend(sequenced)
         self.append_calls += 1
+        self._project_escalations(sequenced)
         inst = fold(stream)
         self.index[instance_id] = _IndexEntry(
             instance_id=instance_id,
@@ -262,6 +308,44 @@ class RecordingActionProvider:
             raise RuntimeError(f"cannot undo {req.effect_name}")
         self.compensated.append(req)
         return EffectResult(ok=True, data={"undone": req.effect_name})
+
+
+class InMemoryEscalationReadStore:
+    """Reads the escalations that ``InMemoryJournal`` projected from events."""
+
+    def __init__(self, journal: InMemoryJournal) -> None:
+        self._journal = journal
+
+    def _to_pending(self, snap: Any) -> Any:
+        from agentforge.core.escalation import _row_to_pending
+
+        return _row_to_pending(snap)
+
+    async def get(self, escalation_id: str) -> Any:
+        snap = self._journal.escalations.get(escalation_id)
+        return self._to_pending(snap) if snap is not None else None
+
+    async def list_pending(self, tenant_id: str, limit: int) -> list[Any]:
+        snaps = sorted(
+            (
+                s
+                for s in self._journal.escalations.values()
+                if s.tenant_id == tenant_id and s.status == "pending"
+            ),
+            key=lambda s: s.created_at,
+        )
+        return [self._to_pending(s) for s in snaps[:limit]]
+
+    async def due(self, now: datetime, limit: int) -> list[Any]:
+        snaps = sorted(
+            (
+                s
+                for s in self._journal.escalations.values()
+                if s.status == "pending" and s.deadline is not None and s.deadline <= now
+            ),
+            key=lambda s: s.deadline,
+        )
+        return [self._to_pending(s) for s in snaps[:limit]]
 
 
 class FakeLLMProvider:

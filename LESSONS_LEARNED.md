@@ -96,3 +96,24 @@ Real problems hit during the build and how they were solved. Added as they happe
   by date is wrong (that's lifetime cost). Added `tenant_cost_ledger` (one row per
   tenant/day, `INSERT … ON CONFLICT DO UPDATE SET cost = cost + n`), bumped by the driver
   right after it appends the `CostCharged` events.
+
+## Phase 5
+
+- **Deadline timers don't need a timers table.** The `escalations` read model (rebuilt
+  from events by `EventStore._commit`, like `instance_index`) already stores
+  `deadline` + `auto_action`; the sweeper just queries `status='pending' AND deadline <= now`.
+  Retry backoff already uses `instance_index.next_wakeup_at`, so there's nothing else timed.
+- **Two more step transitions surfaced from HITL.** `WAITING_APPROVAL → READY` (an approved
+  step goes back to the ready queue) and `FAILED → WAITING_APPROVAL` (a budget-refused step
+  held for a human — added in Phase 4). The state machine grows one edge at a time as real
+  flows need it, and each edge gets a comment saying why.
+- **Same store-protocol pattern, third time.** `EscalationController` reads through an
+  `EscalationReadStore` (`Pg` + a test double fed by `InMemoryJournal`'s own escalation
+  projection). The controller's resolve/timeout *logic* — which events to append, which
+  transitions — is fully unit-tested with no DB; only the read queries need Postgres.
+- **Publishing is off the durability path.** `EventStore` takes an optional `EventPublisher`
+  and calls it *after* the transaction commits. A Redis outage → `RedisEventPublisher`
+  logs and swallows → no live updates, never lost or delayed state.
+- **The WebSocket endpoint itself is Phase 6.** Phase 5 ships the pub/sub mechanism and a
+  testable `InstanceStream` async iterator; the FastAPI route that relays it to a browser
+  lands with the rest of the API surface.
