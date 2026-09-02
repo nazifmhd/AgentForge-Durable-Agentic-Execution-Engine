@@ -2,17 +2,21 @@
 
 It does not touch the event log; it returns a :class:`StepOutcome` the driver
 turns into events. Keeping it side-effect-free (w.r.t. persistence) makes retry
-and recovery reasoning simple: re-running an attempt is always safe here.
+and recovery reasoning simple: re-running an attempt is always safe here (side
+effects go through the guard, which dedups).
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from agentforge.core.runners import CostEntry, StepContext, StepRegistry
 from agentforge.exceptions import RETRYABLE_BY_NAME, AgentForgeError
+
+if TYPE_CHECKING:
+    from agentforge.core.side_effects import EffectOutcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +24,7 @@ class StepSuccess:
     output: dict[str, Any]
     model_used: str | None
     charges: list[CostEntry] = field(default_factory=list)
+    effects: list[EffectOutcome] = field(default_factory=list)
     ok: Literal[True] = True
 
 
@@ -29,6 +34,7 @@ class StepFailure:
     error_message: str
     retryable: bool
     charges: list[CostEntry] = field(default_factory=list)
+    effects: list[EffectOutcome] = field(default_factory=list)
     ok: Literal[False] = False
 
 
@@ -55,6 +61,7 @@ class StepExecutor:
                 error_message=f"step exceeded {timeout_seconds}s",
                 retryable=True,
                 charges=ctx.charges,
+                effects=ctx.effects,
             )
         except asyncio.CancelledError:
             raise
@@ -64,9 +71,11 @@ class StepExecutor:
                 error_message=str(exc) or type(exc).__name__,
                 retryable=_classify(exc),
                 charges=ctx.charges,
+                effects=ctx.effects,
             )
         return StepSuccess(
             output=result.output,
             model_used=result.model_used,
             charges=ctx.charges,
+            effects=ctx.effects,
         )

@@ -12,6 +12,7 @@ from agentforge.core.persistence.tables import (
     InstanceIndexRow,
     InstanceLeaseRow,
     InstanceSnapshotRow,
+    SideEffectOutboxRow,
     WorkflowDefinitionRow,
     WorkflowEventRow,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "InstanceLeaseRow",
     "InstanceSnapshotRow",
     "LeaseStore",
+    "SideEffectOutboxRow",
     "WorkflowDefinitionRow",
     "WorkflowEventRow",
 ]

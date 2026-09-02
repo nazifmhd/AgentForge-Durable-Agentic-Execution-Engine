@@ -64,6 +64,14 @@ class EscalationRef(BaseModel):
     resolved: bool = False
 
 
+class SideEffectRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str
+    step_id: str
+    effect_name: str
+    status: str = "pending"  # pending | executed | compensated
+
+
 class WorkflowInstance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,6 +90,7 @@ class WorkflowInstance(BaseModel):
 
     error_history: list[ErrorRecord] = Field(default_factory=list)
     escalations: list[EscalationRef] = Field(default_factory=list)
+    side_effects: list[SideEffectRef] = Field(default_factory=list)
 
     # Version == sequence number of the last event folded in. This is the value
     # a writer passes to EventStore.append as ``expected_version``.

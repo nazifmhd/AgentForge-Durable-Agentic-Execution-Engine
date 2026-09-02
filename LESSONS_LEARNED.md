@@ -54,3 +54,24 @@ Real problems hit during the build and how they were solved. Added as they happe
   the executor / driver / worker / recovery all got `InMemoryJournal` + `InMemoryLeaseStore`
   doubles mirroring the PG semantics (version conflict, fence guard, claim gating). 63 unit
   tests run with no infra; the PG-specific SQL gets thinner integration coverage in CI.
+
+## Phase 3
+
+- **The blueprint's "outbox" is really a dedup table.** Its flow (write intent → execute →
+  mark done, all inline) still re-fires if the process dies between execute and mark-done.
+  The guard now: (1) atomic upsert-with-`RETURNING` claims the row and tells us the attempt
+  count, (2) on a *resumed* attempt with a non-idempotent provider, `reconcile()` asks the
+  provider "did the last try land?" before re-executing, (3) idempotent providers just get
+  the same key. Guarantee is labeled per effect (`exactly_once` vs `at_least_once_dedup`).
+- **Same pattern again: extract a store protocol so it's locally testable.** `OutboxStore`
+  (Pg + in-memory) let the dedup/reconcile/compensate logic get 6 unit tests with no DB;
+  the atomic-claim-under-concurrency check is the one part that needs real Postgres.
+- **DLQ requeue is just another event.** `WorkflowRequeued` folds to
+  `DEAD_LETTERED → RUNNING` + the failed step back to `READY` with `attempts = 0` (fresh
+  budget — the operator is asserting the transient cause is fixed). No lease needed: a
+  dead-lettered instance has no live worker.
+- **Rollback = compensate effects (newest first) then steps (reverse order).** A failed
+  compensation doesn't silently strand the workflow — it raises `CompensationError` and the
+  driver escalates to `WAITING_APPROVAL` with a `compensation_failed` escalation.
+- **Workflow-level escalations carry no step.** `EscalationRaised(step_id="")` needed a
+  guard in the fold so it doesn't materialise a phantom step named `""`.

@@ -63,6 +63,15 @@ class InstanceFailed(BaseEvent):
     error_message: str
 
 
+class WorkflowRequeued(BaseEvent):
+    """Operator action: pull an instance back out of the dead-letter queue."""
+
+    event_type: Literal["WorkflowRequeued"] = "WorkflowRequeued"
+    step_id: str | None = None
+    requeued_by: str = "operator"
+    dlq_id: int | None = None
+
+
 # --- step execution ----------------------------------------------------
 class StepStatusChanged(BaseEvent):
     """Generic step transition (PENDING->READY, etc.) not covered by a richer event."""
@@ -221,6 +230,7 @@ AnyEvent = Annotated[
     | InstanceStatusChanged
     | InstanceCompleted
     | InstanceFailed
+    | WorkflowRequeued
     | StepStatusChanged
     | StepStarted
     | StepCompleted
@@ -259,6 +269,7 @@ EVENT_TYPES: dict[str, type[BaseEvent]] = {
         InstanceStatusChanged,
         InstanceCompleted,
         InstanceFailed,
+        WorkflowRequeued,
         StepStatusChanged,
         StepStarted,
         StepCompleted,

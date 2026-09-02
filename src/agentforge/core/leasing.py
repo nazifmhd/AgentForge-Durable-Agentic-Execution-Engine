@@ -138,7 +138,7 @@ class PgLeaseStore:
                 InstanceLeaseRow.worker_id == worker_id,
                 InstanceLeaseRow.instance_id == instance_id,
             )
-            .values(expires_at=InstanceLeaseRow.heartbeat_at)
+            .values(expires_at=InstanceLeaseRow.heartbeat_at - timedelta(seconds=1))
         )
         async with self._sm() as session, session.begin():
             await session.execute(stmt)

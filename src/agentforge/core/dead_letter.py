@@ -2,8 +2,9 @@
 
 When a workflow exhausts retries (or hits a non-retryable failure with
 ``on_failure=dead_letter``) the driver records it here and moves the instance to
-``DEAD_LETTERED``. Phase 3 adds requeue/bulk-resolve; for now this is the
-record + list surface.
+``DEAD_LETTERED``. An operator can ``requeue`` an entry: that appends a
+``WorkflowRequeued`` event (instance ``DEAD_LETTERED -> RUNNING``, the failed
+step reset to ``READY`` with a fresh retry budget) so a worker picks it up again.
 """
 
 from __future__ import annotations
@@ -15,7 +16,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agentforge.core.domain.instance import WorkflowInstance
+from agentforge.core.events.types import WorkflowRequeued
+from agentforge.core.persistence.protocols import EventJournal
 from agentforge.core.persistence.tables import DeadLetterRow
+from agentforge.core.ports import SYSTEM_CLOCK, UUID_GENERATOR, Clock, IdGenerator
+from agentforge.exceptions import ConfigurationError
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +38,16 @@ class DeadLetter:
 
 
 class DeadLetterService:
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        *,
+        clock: Clock = SYSTEM_CLOCK,
+        ids: IdGenerator = UUID_GENERATOR,
+    ) -> None:
         self._sm = sessionmaker
+        self._clock = clock
+        self._ids = ids
 
     async def record(
         self,
@@ -86,7 +99,9 @@ class DeadLetterService:
                 for r in rows
             ]
 
-    async def mark_resolved(self, dlq_id: int, *, tenant_id: str, now: datetime) -> None:
+    async def mark_resolved(
+        self, dlq_id: int, *, tenant_id: str, now: datetime | None = None
+    ) -> None:
         async with self._sm() as session, session.begin():
             await session.execute(
                 update(DeadLetterRow)
@@ -94,5 +109,45 @@ class DeadLetterService:
                     DeadLetterRow.id == dlq_id,
                     DeadLetterRow.tenant_id == tenant_id,
                 )
-                .values(resolved=True, resolved_at=now)
+                .values(resolved=True, resolved_at=now or self._clock.now())
             )
+
+    async def requeue(
+        self,
+        dlq_id: int,
+        *,
+        tenant_id: str,
+        journal: EventJournal,
+        requeued_by: str = "operator",
+    ) -> str:
+        """Move a dead-lettered instance back to RUNNING. Returns its instance_id."""
+        async with self._sm() as session:
+            row = await session.get(DeadLetterRow, dlq_id)
+        if row is None or row.tenant_id != tenant_id:
+            raise ConfigurationError(f"dead-letter entry {dlq_id} not found")
+        if row.resolved:
+            raise ConfigurationError(f"dead-letter entry {dlq_id} already resolved")
+
+        instance = await journal.get_instance(row.instance_id, tenant_id)
+        if instance is None:
+            raise ConfigurationError(f"instance {row.instance_id} not found")
+        if instance.status.value != "dead_lettered":
+            raise ConfigurationError(
+                f"instance {row.instance_id} is {instance.status.value}, not dead_lettered"
+            )
+
+        event = WorkflowRequeued(
+            event_id=self._ids.new_id(),
+            instance_id=row.instance_id,
+            tenant_id=tenant_id,
+            sequence=1,  # placeholder; append_new assigns the real sequence
+            occurred_at=self._clock.now(),
+            step_id=row.step_id,
+            requeued_by=requeued_by,
+            dlq_id=dlq_id,
+        )
+        await journal.append_new(
+            row.instance_id, tenant_id, [event], expected_version=instance.version
+        )
+        await self.mark_resolved(dlq_id, tenant_id=tenant_id)
+        return row.instance_id

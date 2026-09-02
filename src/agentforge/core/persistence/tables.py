@@ -159,3 +159,31 @@ class DeadLetterRow(Base):
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SideEffectOutboxRow(Base):
+    __tablename__ = "side_effect_outbox"
+    __table_args__ = (
+        PrimaryKeyConstraint("idempotency_key"),
+        Index("ix_outbox_instance", "instance_id"),
+        Index("ix_outbox_status", "status"),
+    )
+
+    idempotency_key: Mapped[str] = mapped_column(String(64))
+    instance_id: Mapped[str] = mapped_column(String(36))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    step_id: Mapped[str] = mapped_column(String(128))
+    effect_name: Mapped[str] = mapped_column(String(128))
+    provider: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    guarantee: Mapped[str] = mapped_column(String(32), default="at_least_once_dedup")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    provider_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    compensation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

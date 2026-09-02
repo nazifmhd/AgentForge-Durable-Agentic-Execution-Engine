@@ -35,7 +35,13 @@ from agentforge.core.leasing import Guard, Lease
 from agentforge.core.persistence.protocols import DefinitionSource, EventJournal
 from agentforge.core.ports import SYSTEM_CLOCK, UUID_GENERATOR, Clock, IdGenerator
 from agentforge.core.runners import StepContext
-from agentforge.exceptions import ConfigurationError, ConflictError, LeaseLostError
+from agentforge.core.side_effects import SideEffectGuard
+from agentforge.exceptions import (
+    CompensationError,
+    ConfigurationError,
+    ConflictError,
+    LeaseLostError,
+)
 from agentforge.logging import get_logger
 
 log = get_logger("driver")
@@ -49,6 +55,7 @@ class DriveResult(StrEnum):
     COMPLETED = "completed"
     PAUSED = "paused"
     DEAD_LETTERED = "dead_lettered"
+    ROLLED_BACK = "rolled_back"
     PARKED = "parked"
     WAITING_APPROVAL = "waiting_approval"
     LEASE_LOST = "lease_lost"
@@ -80,6 +87,7 @@ class WorkflowDriver:
         executor: StepExecutor,
         dead_letters: DeadLetterService,
         *,
+        side_effects: SideEffectGuard | None = None,
         clock: Clock = SYSTEM_CLOCK,
         ids: IdGenerator = UUID_GENERATOR,
     ) -> None:
@@ -87,6 +95,7 @@ class WorkflowDriver:
         self._definitions = definitions
         self._executor = executor
         self._dead_letters = dead_letters
+        self._side_effects = side_effects
         self._clock = clock
         self._ids = ids
 
@@ -121,8 +130,10 @@ class WorkflowDriver:
     ) -> DriveReport:
         for _ in range(_MAX_DRIVE_ITERATIONS):
             status = instance.status
-            if status in (WorkflowStatus.COMPLETED, WorkflowStatus.ROLLED_BACK):
+            if status == WorkflowStatus.COMPLETED:
                 return DriveReport(instance.instance_id, DriveResult.COMPLETED)
+            if status == WorkflowStatus.ROLLED_BACK:
+                return DriveReport(instance.instance_id, DriveResult.ROLLED_BACK)
             if status == WorkflowStatus.PAUSED:
                 return DriveReport(instance.instance_id, DriveResult.PAUSED)
             if status == WorkflowStatus.DEAD_LETTERED:
@@ -291,6 +302,7 @@ class WorkflowDriver:
                 inputs=self._resolve_inputs(instance, step),
                 instance_context=dict(instance.context),
                 clock=self._clock,
+                guard=self._side_effects,
             )
             outcome = await self._executor.run_attempt(ctx, timeout_seconds=step.timeout_seconds)
             return sid, att, step, outcome
@@ -309,6 +321,29 @@ class WorkflowDriver:
                         model=c.model,
                         tokens_input=c.tokens_input,
                         tokens_output=c.tokens_output,
+                    )
+                )
+            for eff in outcome.effects:
+                if not eff.deduplicated:
+                    drafts.append(
+                        self._event(
+                            instance,
+                            E.SideEffectIntentRecorded,
+                            step_id=sid,
+                            effect_name=eff.effect_name,
+                            idempotency_key=eff.idempotency_key,
+                            params=eff.params,
+                            guarantee=eff.guarantee,
+                        )
+                    )
+                drafts.append(
+                    self._event(
+                        instance,
+                        E.SideEffectExecuted,
+                        step_id=sid,
+                        idempotency_key=eff.idempotency_key,
+                        result=eff.result.data,
+                        deduplicated=eff.deduplicated,
                     )
                 )
             if outcome.ok:
@@ -394,13 +429,11 @@ class WorkflowDriver:
         guard: Guard,
     ) -> DriveReport:
         step_id, reason = failure
-        if definition.on_failure in (OnFailure.DEAD_LETTER, OnFailure.ROLLBACK):
-            if definition.on_failure == OnFailure.ROLLBACK:
-                log.warning(
-                    "rollback_not_implemented",
-                    instance_id=instance.instance_id,
-                    note="Phase 3; dead-lettering instead",
-                )
+
+        if definition.on_failure == OnFailure.ROLLBACK:
+            return await self._rollback(instance, definition, reason, guard)
+
+        if definition.on_failure == OnFailure.DEAD_LETTER:
             instance = await self._transition(
                 instance,
                 definition,
@@ -421,6 +454,120 @@ class WorkflowDriver:
             reason=reason,
         )
         return DriveReport(instance.instance_id, DriveResult.PAUSED)
+
+    async def _rollback(
+        self,
+        instance: WorkflowInstance,
+        definition: WorkflowDefinition,
+        reason: str,
+        guard: Guard,
+    ) -> DriveReport:
+        # (1) undo external side effects, newest first
+        try:
+            undone = (
+                await self._side_effects.compensate_instance(
+                    instance.instance_id, instance.tenant_id
+                )
+                if self._side_effects is not None
+                else []
+            )
+        except CompensationError as exc:
+            return await self._escalate_compensation_failure(instance, definition, str(exc), guard)
+
+        # (2) run per-step compensation handlers, reverse definition order
+        to_compensate = [
+            step
+            for step in reversed(definition.steps)
+            if step.compensation_action
+            and instance.step_states[step.step_id].status == StepStatus.COMPLETED
+        ]
+        for step in to_compensate:
+            try:
+                await self._run_step_compensation(instance, step)
+            except Exception as exc:  # noqa: BLE001 - any handler failure -> escalate
+                return await self._escalate_compensation_failure(
+                    instance,
+                    definition,
+                    f"compensation for step {step.step_id} failed: {exc}",
+                    guard,
+                )
+
+        drafts: list[BaseEvent] = []
+        for eff in undone:
+            drafts.append(
+                self._event(
+                    instance,
+                    E.SideEffectCompensated,
+                    step_id=eff.step_id,
+                    idempotency_key=eff.idempotency_key,
+                    result=eff.result.data,
+                )
+            )
+        for step in to_compensate:
+            drafts.append(
+                self._event(
+                    instance,
+                    E.StepCompensated,
+                    step_id=step.step_id,
+                    compensation_action=step.compensation_action or "",
+                )
+            )
+        drafts.append(
+            self._event(
+                instance,
+                E.InstanceStatusChanged,
+                from_status=WorkflowStatus.RUNNING,
+                to_status=WorkflowStatus.ROLLED_BACK,
+                reason=reason,
+            )
+        )
+        await self._append(instance, definition, drafts, guard)
+        return DriveReport(instance.instance_id, DriveResult.ROLLED_BACK)
+
+    async def _run_step_compensation(self, instance: WorkflowInstance, step: WorkflowStep) -> None:
+        ctx = StepContext(
+            instance_id=instance.instance_id,
+            tenant_id=instance.tenant_id,
+            step_id=step.step_id,
+            agent_type=step.compensation_action or "",
+            attempt=1,
+            inputs={"output": instance.step_states[step.step_id].output or {}},
+            instance_context=dict(instance.context),
+            clock=self._clock,
+            guard=self._side_effects,
+        )
+        outcome = await self._executor.run_attempt(ctx, timeout_seconds=step.timeout_seconds)
+        if not outcome.ok:
+            raise CompensationError(outcome.error_message)
+
+    async def _escalate_compensation_failure(
+        self,
+        instance: WorkflowInstance,
+        definition: WorkflowDefinition,
+        detail: str,
+        guard: Guard,
+    ) -> DriveReport:
+        log.error("compensation_failed", instance_id=instance.instance_id, detail=detail)
+        drafts: list[BaseEvent] = [
+            self._event(
+                instance,
+                E.EscalationRaised,
+                escalation_id=self._ids.new_id(),
+                step_id="",
+                reason="compensation_failed",
+                recommendation=detail,
+                auto_action="abort",
+            ),
+            self._event(
+                instance,
+                E.InstanceStatusChanged,
+                from_status=WorkflowStatus.RUNNING,
+                to_status=WorkflowStatus.WAITING_APPROVAL,
+                reason="compensation failed — needs a human",
+            ),
+        ]
+        await self._append(instance, definition, drafts, guard)
+        return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _escalate_for_approval(
         self,

@@ -21,6 +21,7 @@ from agentforge.core.runners import (
     StepRunner,
     default_registry,
 )
+from agentforge.core.side_effects import EffectOutcome, EffectStatus, SideEffectGuard
 
 __all__ = [
     "BaseEvent",
@@ -28,12 +29,15 @@ __all__ = [
     "DefinitionRepository",
     "DriveReport",
     "DriveResult",
+    "EffectOutcome",
+    "EffectStatus",
     "EventStore",
     "InstanceService",
     "Lease",
     "PgLeaseStore",
     "RecoveryService",
     "RetryPolicy",
+    "SideEffectGuard",
     "Snapshot",
     "StepContext",
     "StepExecutor",

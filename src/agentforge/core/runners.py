@@ -13,10 +13,14 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from agentforge.core.ports import SYSTEM_CLOCK, Clock
 from agentforge.exceptions import ConfigurationError
+
+if TYPE_CHECKING:
+    from agentforge.core.side_effects import EffectOutcome, SideEffectGuard
+    from agentforge.integrations.actions.base import EffectResult
 
 
 @dataclass
@@ -37,7 +41,9 @@ class StepContext:
     inputs: dict[str, Any]
     instance_context: dict[str, Any]
     clock: Clock = SYSTEM_CLOCK
+    guard: SideEffectGuard | None = None
     _charges: list[CostEntry] = field(default_factory=list)
+    _effects: list[EffectOutcome] = field(default_factory=list)
 
     def charge(
         self,
@@ -50,9 +56,34 @@ class StepContext:
         """Record a billable call. The executor emits one ``CostCharged`` per entry."""
         self._charges.append(CostEntry(amount_usd, model, tokens_input, tokens_output))
 
+    async def execute_effect(
+        self,
+        effect_name: str,
+        params: dict[str, Any],
+        *,
+        provider: str = "noop",
+    ) -> EffectResult:
+        """Perform an external side effect exactly-once through the guard (ADR-0003)."""
+        if self.guard is None:
+            raise ConfigurationError("step attempted a side effect but no SideEffectGuard is wired")
+        outcome = await self.guard.execute(
+            instance_id=self.instance_id,
+            tenant_id=self.tenant_id,
+            step_id=self.step_id,
+            effect_name=effect_name,
+            params=params,
+            provider_name=provider,
+        )
+        self._effects.append(outcome)
+        return outcome.result
+
     @property
     def charges(self) -> list[CostEntry]:
         return list(self._charges)
+
+    @property
+    def effects(self) -> list[EffectOutcome]:
+        return list(self._effects)
 
 
 @dataclass(frozen=True, slots=True)

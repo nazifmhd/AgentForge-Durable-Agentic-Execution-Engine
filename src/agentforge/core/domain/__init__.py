@@ -15,6 +15,7 @@ from agentforge.core.domain.enums import (
 from agentforge.core.domain.instance import (
     ErrorRecord,
     EscalationRef,
+    SideEffectRef,
     StepState,
     TokenUsage,
     WorkflowInstance,
@@ -26,6 +27,7 @@ __all__ = [
     "EscalationRef",
     "OnFailure",
     "RetryPolicy",
+    "SideEffectRef",
     "StepState",
     "StepStatus",
     "TokenUsage",

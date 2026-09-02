@@ -4,8 +4,8 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 2 — executor, leasing & recovery.** The engine is being built
-> phase by phase; see [Roadmap](#roadmap).
+> Status: **Phase 3 — exactly-once side effects & rollback.** The engine is being
+> built phase by phase; see [Roadmap](#roadmap).
 
 ---
 
@@ -75,8 +75,8 @@ docs/adr/          # architecture decision records
 | 0 | Scaffold: tooling, CI, compose, Alembic, config | ✅ |
 | 1 | Event-sourced core: domain models, DAG, event vocabulary, `fold`, snapshots, `EventStore` | ✅ |
 | 2 | Step executor, worker leasing + heartbeat + fencing, workflow driver, crash recovery | ✅ |
-| 3 | Side-effect guard, DLQ management, compensation / rollback | ⏳ |
-| 4 | Cost router + pre-flight budget + LLM providers | |
+| 3 | Side-effect guard (outbox + provider idempotency), `ActionProvider`, compensation/rollback, DLQ requeue | ✅ |
+| 4 | Cost router + pre-flight budget + LLM providers | ⏳ |
 | 5 | Escalation / HITL + timers + WebSocket | |
 | 6 | FastAPI surface, auth, multi-tenancy, rate limiting | |
 | 7 | LangGraph agent runtime + base agents | |

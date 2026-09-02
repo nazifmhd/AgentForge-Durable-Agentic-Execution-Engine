@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from agentforge.core.domain.definition import WorkflowDefinition
 from agentforge.core.domain.instance import WorkflowInstance
@@ -153,7 +154,7 @@ class InMemoryLeaseStore:
     async def release(self, worker_id: str, instance_id: str) -> None:
         row = self._leases.get(instance_id)
         if row is not None and row.worker_id == worker_id:
-            row.expires_at = row.heartbeat_at
+            row.expires_at = row.heartbeat_at - timedelta(seconds=1)
 
     async def reclaim_expired(self, now: datetime) -> list[str]:
         return [iid for iid, row in self._leases.items() if row.expires_at < now]
@@ -210,6 +211,57 @@ class Harness:
     leases: InMemoryLeaseStore
     definitions: InMemoryDefinitions
     dead_letters: FakeDeadLetters = field(default_factory=FakeDeadLetters)
+
+
+class RecordingActionProvider:
+    """Test provider: records executes/compensates, with configurable behaviour."""
+
+    def __init__(
+        self,
+        name: str = "test",
+        *,
+        idempotent: set[str] | None = None,
+        fail_effects: set[str] | None = None,
+        reconcile_hits: set[str] | None = None,
+        compensate_fails: set[str] | None = None,
+    ) -> None:
+        self.name = name
+        self._idempotent = idempotent or set()
+        self._fail = fail_effects or set()
+        self._reconcile_hits = reconcile_hits or set()
+        self._compensate_fails = compensate_fails or set()
+        self.executed: list[Any] = []
+        self.compensated: list[Any] = []
+        self.reconciled: list[Any] = []
+
+    def supports_idempotency_key(self, effect_name: str) -> bool:
+        return effect_name in self._idempotent
+
+    async def execute(self, req: Any) -> Any:
+        from agentforge.integrations.actions.base import EffectResult
+
+        self.executed.append(req)
+        if req.effect_name in self._fail:
+            raise RuntimeError(f"provider blew up on {req.effect_name}")
+        return EffectResult(
+            ok=True, data={"n": len(self.executed)}, provider_ref=f"ref-{len(self.executed)}"
+        )
+
+    async def reconcile(self, req: Any) -> Any:
+        from agentforge.integrations.actions.base import EffectResult
+
+        self.reconciled.append(req)
+        if req.effect_name in self._reconcile_hits:
+            return EffectResult(ok=True, data={"reconciled": True})
+        return None
+
+    async def compensate(self, req: Any, executed: Any) -> Any:
+        from agentforge.integrations.actions.base import EffectResult
+
+        if req.effect_name in self._compensate_fails:
+            raise RuntimeError(f"cannot undo {req.effect_name}")
+        self.compensated.append(req)
+        return EffectResult(ok=True, data={"undone": req.effect_name})
 
 
 async def seed_instance(

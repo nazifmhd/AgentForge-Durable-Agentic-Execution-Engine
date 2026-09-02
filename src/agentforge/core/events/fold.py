@@ -29,6 +29,7 @@ from agentforge.core.domain.enums import (
 from agentforge.core.domain.instance import (
     ErrorRecord,
     EscalationRef,
+    SideEffectRef,
     StepState,
     WorkflowInstance,
 )
@@ -97,6 +98,17 @@ def _on_failed(inst: WorkflowInstance, e: E.InstanceFailed, _: object) -> None:
             occurred_at=e.occurred_at,
         )
     )
+
+
+def _on_requeued(inst: WorkflowInstance, e: E.WorkflowRequeued, _: object) -> None:
+    _set_workflow_status(inst, WorkflowStatus.RUNNING, declared_from=None)
+    if e.step_id is not None:
+        st = _ensure_step(inst, e.step_id)
+        st.status = StepStatus.READY
+        st.attempts = 0
+        st.next_retry_at = None
+        st.error_type = None
+        st.error_message = None
 
 
 def _on_step_status(inst: WorkflowInstance, e: E.StepStatusChanged, _: object) -> None:
@@ -187,7 +199,8 @@ def _on_budget_exceeded(inst: WorkflowInstance, e: E.BudgetExceeded, _: object) 
 
 
 def _on_escalation_raised(inst: WorkflowInstance, e: E.EscalationRaised, _: object) -> None:
-    _set_step_status(inst, e.step_id, StepStatus.WAITING_APPROVAL)
+    if e.step_id:  # workflow-level escalations (e.g. compensation failure) carry no step
+        _set_step_status(inst, e.step_id, StepStatus.WAITING_APPROVAL)
     inst.escalations.append(
         EscalationRef(
             escalation_id=e.escalation_id,
@@ -214,6 +227,46 @@ def _on_escalation_timed_out(inst: WorkflowInstance, e: E.EscalationTimedOut, _:
     _resolve_escalation(inst, e.escalation_id)
 
 
+def _side_effect_ref(inst: WorkflowInstance, key: str) -> SideEffectRef | None:
+    for ref in inst.side_effects:
+        if ref.idempotency_key == key:
+            return ref
+    return None
+
+
+def _on_effect_intent(inst: WorkflowInstance, e: E.SideEffectIntentRecorded, _: object) -> None:
+    if _side_effect_ref(inst, e.idempotency_key) is None:
+        inst.side_effects.append(
+            SideEffectRef(
+                idempotency_key=e.idempotency_key,
+                step_id=e.step_id,
+                effect_name=e.effect_name,
+                status="pending",
+            )
+        )
+
+
+def _on_effect_executed(inst: WorkflowInstance, e: E.SideEffectExecuted, _: object) -> None:
+    ref = _side_effect_ref(inst, e.idempotency_key)
+    if ref is None:
+        inst.side_effects.append(
+            SideEffectRef(
+                idempotency_key=e.idempotency_key,
+                step_id=e.step_id,
+                effect_name="",
+                status="executed",
+            )
+        )
+    else:
+        ref.status = "executed"
+
+
+def _on_effect_compensated(inst: WorkflowInstance, e: E.SideEffectCompensated, _: object) -> None:
+    ref = _side_effect_ref(inst, e.idempotency_key)
+    if ref is not None:
+        ref.status = "compensated"
+
+
 def _noop(inst: WorkflowInstance, e: Any, defn: WorkflowDefinition | None) -> None:
     return None
 
@@ -225,6 +278,7 @@ _HANDLERS: dict[type[E.BaseEvent], _Handler] = {
     E.InstanceStatusChanged: _on_wf_status,
     E.InstanceCompleted: _on_completed,
     E.InstanceFailed: _on_failed,
+    E.WorkflowRequeued: _on_requeued,
     E.StepStatusChanged: _on_step_status,
     E.StepStarted: _on_step_started,
     E.StepCompleted: _on_step_completed,
@@ -234,9 +288,9 @@ _HANDLERS: dict[type[E.BaseEvent], _Handler] = {
     E.StepCompensated: _on_step_compensated,
     E.LLMCallRecorded: _on_llm_recorded,
     E.ToolCallRecorded: _noop,
-    E.SideEffectIntentRecorded: _noop,
-    E.SideEffectExecuted: _noop,
-    E.SideEffectCompensated: _noop,
+    E.SideEffectIntentRecorded: _on_effect_intent,
+    E.SideEffectExecuted: _on_effect_executed,
+    E.SideEffectCompensated: _on_effect_compensated,
     E.EscalationRaised: _on_escalation_raised,
     E.EscalationResolved: _on_escalation_resolved,
     E.EscalationTimedOut: _on_escalation_timed_out,

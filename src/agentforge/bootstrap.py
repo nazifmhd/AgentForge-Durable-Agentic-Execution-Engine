@@ -14,11 +14,14 @@ from agentforge.core.driver import WorkflowDriver
 from agentforge.core.executor import StepExecutor
 from agentforge.core.instances import InstanceService
 from agentforge.core.leasing import PgLeaseStore
+from agentforge.core.outbox import PgOutboxStore
 from agentforge.core.persistence.definition_repo import DefinitionRepository
 from agentforge.core.persistence.event_store import EventStore
 from agentforge.core.recovery import RecoveryService
 from agentforge.core.runners import StepRegistry, default_registry
+from agentforge.core.side_effects import SideEffectGuard
 from agentforge.db import get_sessionmaker
+from agentforge.integrations.actions import NoopActionProvider, ProviderRegistry
 from agentforge.worker import Worker
 
 
@@ -32,18 +35,33 @@ class Engine:
     recovery: RecoveryService
     driver: WorkflowDriver
     registry: StepRegistry
+    providers: ProviderRegistry
+    side_effects: SideEffectGuard
 
 
-def build_engine(registry: StepRegistry | None = None) -> Engine:
+def build_engine(
+    registry: StepRegistry | None = None,
+    providers: ProviderRegistry | None = None,
+) -> Engine:
     sm = get_sessionmaker()
     registry = registry or default_registry()
+    if providers is None:
+        providers = ProviderRegistry()
+        providers.register(NoopActionProvider())
 
     events = EventStore(sm)
     definitions = DefinitionRepository(sm)
     dead_letters = DeadLetterService(sm)
     leases = PgLeaseStore(sm, lease_seconds=settings.lease_seconds)
     recovery = RecoveryService(sm, stale_after_seconds=settings.recovery_scan_interval_seconds * 4)
-    driver = WorkflowDriver(events, definitions, StepExecutor(registry), dead_letters)
+    side_effects = SideEffectGuard(PgOutboxStore(sm), providers)
+    driver = WorkflowDriver(
+        events,
+        definitions,
+        StepExecutor(registry),
+        dead_letters,
+        side_effects=side_effects,
+    )
     return Engine(
         events=events,
         definitions=definitions,
@@ -53,6 +71,8 @@ def build_engine(registry: StepRegistry | None = None) -> Engine:
         recovery=recovery,
         driver=driver,
         registry=registry,
+        providers=providers,
+        side_effects=side_effects,
     )
 
 
