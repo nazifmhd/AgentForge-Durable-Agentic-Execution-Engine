@@ -35,8 +35,21 @@ def api() -> None:
 
 @app.command()
 def worker() -> None:
-    """Run an execution worker (implemented in Phase 2)."""
-    raise typer.Exit(code=0)
+    """Run an execution worker: claim leases, drive workflows, heartbeat, recover."""
+    import asyncio
+
+    from agentforge.bootstrap import build_worker
+    from agentforge.db import dispose_engine
+
+    async def _main() -> None:
+        w = build_worker()
+        w.install_signal_handlers()
+        try:
+            await w.run()
+        finally:
+            await dispose_engine()
+
+    asyncio.run(_main())
 
 
 if __name__ == "__main__":

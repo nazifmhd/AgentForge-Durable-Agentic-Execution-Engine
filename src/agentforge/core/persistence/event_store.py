@@ -5,6 +5,7 @@ snapshot and index rows kept consistent inside the same transaction.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -21,6 +22,7 @@ from agentforge.core.events import (
     parse_event,
     should_snapshot,
 )
+from agentforge.core.leasing import Guard
 from agentforge.core.persistence.tables import (
     InstanceIndexRow,
     InstanceSnapshotRow,
@@ -41,23 +43,72 @@ class EventStore:
         events: Sequence[BaseEvent],
         *,
         expected_version: int,
+        guard: Guard | None = None,
+        next_wakeup_at: datetime | None = None,
     ) -> int:
-        """Atomically append ``events``. Raises :class:`ConflictError` if the
-        instance has advanced past ``expected_version`` since it was read.
-        Returns the new version (sequence of the last event)."""
+        """Append pre-sequenced ``events`` (their ``sequence`` must be exactly
+        ``expected_version + 1 ...``). Returns the new version."""
         if not events:
             return expected_version
-
         for offset, ev in enumerate(events, start=1):
             if ev.sequence != expected_version + offset:
                 raise EventStreamError(
                     f"event {offset} has sequence {ev.sequence}, "
                     f"expected {expected_version + offset}"
                 )
+        result = await self._commit(
+            instance_id,
+            tenant_id,
+            list(events),
+            expected_version=expected_version,
+            guard=guard,
+            next_wakeup_at=next_wakeup_at,
+        )
+        return result[0]
+
+    async def append_new(
+        self,
+        instance_id: str,
+        tenant_id: str,
+        drafts: Sequence[BaseEvent],
+        *,
+        expected_version: int,
+        guard: Guard | None = None,
+        next_wakeup_at: datetime | None = None,
+    ) -> tuple[int, list[BaseEvent]]:
+        """Assign sequence numbers to ``drafts`` (from ``expected_version + 1``)
+        and append them atomically. Returns ``(new_version, sequenced_events)``."""
+        sequenced = [
+            draft.model_copy(update={"sequence": expected_version + i})
+            for i, draft in enumerate(drafts, start=1)
+        ]
+        return await self._commit(
+            instance_id,
+            tenant_id,
+            sequenced,
+            expected_version=expected_version,
+            guard=guard,
+            next_wakeup_at=next_wakeup_at,
+        )
+
+    async def _commit(
+        self,
+        instance_id: str,
+        tenant_id: str,
+        events: list[BaseEvent],
+        *,
+        expected_version: int,
+        guard: Guard | None,
+        next_wakeup_at: datetime | None,
+    ) -> tuple[int, list[BaseEvent]]:
+        for ev in events:
             if ev.instance_id != instance_id or ev.tenant_id != tenant_id:
                 raise EventStreamError("event instance_id/tenant_id mismatch")
 
         async with self._sm() as session, session.begin():
+            if guard is not None:
+                await guard(session)
+
             current = await session.scalar(
                 select(func.max(WorkflowEventRow.sequence)).where(
                     WorkflowEventRow.instance_id == instance_id
@@ -88,14 +139,14 @@ class EventStore:
                 ) from exc
 
             instance = await self._project(session, instance_id, tenant_id)
-            await self._upsert_index(session, instance)
+            await self._upsert_index(session, instance, next_wakeup_at=next_wakeup_at)
 
             snap = await self._load_snapshot(session, instance_id)
             base_version = snap.version if snap else 0
             if snap is None or should_snapshot(base_version, instance.version):
                 await self._write_snapshot(session, instance, events[-1].occurred_at)
 
-        return events[-1].sequence
+        return events[-1].sequence, events
 
     # --- read path -----------------------------------------------------
     async def load(self, instance_id: str, tenant_id: str, *, after: int = 0) -> list[BaseEvent]:
@@ -196,7 +247,13 @@ class EventStore:
         )
         await session.execute(stmt)
 
-    async def _upsert_index(self, session: AsyncSession, instance: WorkflowInstance) -> None:
+    async def _upsert_index(
+        self,
+        session: AsyncSession,
+        instance: WorkflowInstance,
+        *,
+        next_wakeup_at: datetime | None = None,
+    ) -> None:
         values = {
             "instance_id": instance.instance_id,
             "tenant_id": instance.tenant_id,
@@ -206,6 +263,7 @@ class EventStore:
             "last_sequence": instance.version,
             "cost_accumulated_usd": instance.cost_accumulated_usd,
             "budget_limit_usd": instance.budget_limit_usd,
+            "next_wakeup_at": next_wakeup_at,
             "completed_at": instance.completed_at,
         }
         stmt = pg_insert(InstanceIndexRow).values(**values)
@@ -216,6 +274,7 @@ class EventStore:
                 "last_sequence": stmt.excluded.last_sequence,
                 "cost_accumulated_usd": stmt.excluded.cost_accumulated_usd,
                 "budget_limit_usd": stmt.excluded.budget_limit_usd,
+                "next_wakeup_at": stmt.excluded.next_wakeup_at,
                 "completed_at": stmt.excluded.completed_at,
                 "updated_at": func.now(),
             },

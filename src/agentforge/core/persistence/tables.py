@@ -121,3 +121,41 @@ class InstanceIndexRow(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InstanceLeaseRow(Base):
+    __tablename__ = "instance_leases"
+    __table_args__ = (
+        PrimaryKeyConstraint("instance_id"),
+        Index("ix_leases_expires", "expires_at"),
+        Index("ix_leases_worker", "worker_id"),
+    )
+
+    instance_id: Mapped[str] = mapped_column(String(36))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    worker_id: Mapped[str] = mapped_column(String(128))
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    fence_token: Mapped[int] = mapped_column(BigInteger, default=1)
+
+
+class DeadLetterRow(Base):
+    __tablename__ = "dead_letters"
+    __table_args__ = (
+        PrimaryKeyConstraint("id"),
+        Index("ix_dlq_tenant_created", "tenant_id", "created_at"),
+        Index("ix_dlq_resolved", "resolved"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    instance_id: Mapped[str] = mapped_column(String(36))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    step_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reason: Mapped[str] = mapped_column(String(256))
+    error_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    at_version: Mapped[int] = mapped_column(Integer)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

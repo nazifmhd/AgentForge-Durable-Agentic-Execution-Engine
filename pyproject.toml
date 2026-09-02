@@ -67,16 +67,17 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF", "PL", "TID", "PTH"]
+select = ["E", "F", "I", "UP", "B", "BLE", "SIM", "ASYNC", "RUF", "PL", "TID", "PTH"]
 ignore = [
     "PLR0913",  # wide constructor signatures are fine for domain models / services
     "PLW0603",  # module-level singletons (engine, logging config) use `global` deliberately
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "S101"]
+"tests/**" = ["PLR2004", "S101", "PLC0415"]
 "migrations/**" = ["ALL"]
 "src/agentforge/cli.py" = ["PLC0415"]  # lazy imports keep CLI start-up cheap
+"src/agentforge/core/driver.py" = ["PLR0911", "PLR0912"]  # the workflow state machine is branchy by nature
 
 [tool.mypy]
 python_version = "3.11"

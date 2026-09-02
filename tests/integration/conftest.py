@@ -27,7 +27,7 @@ async def _engine() -> AsyncIterator[object]:
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-    except Exception as exc:  # pragma: no cover - environment dependent
+    except Exception as exc:  # noqa: BLE001  # pragma: no cover - any connection failure -> skip
         await engine.dispose()
         pytest.skip(f"Postgres not available: {exc}")
     yield engine

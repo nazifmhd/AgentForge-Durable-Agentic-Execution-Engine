@@ -29,3 +29,28 @@ Real problems hit during the build and how they were solved. Added as they happe
 - **`fold` should reject a corrupt log, not limp along.** Illegal status transitions,
   non-contiguous sequences, and a stale `from_status` all raise rather than being silently
   applied — a bad event stream is a bug to surface, not smooth over.
+
+## Phase 2
+
+- **CI was red from commit 1 — no `uv.lock`.** `uv sync --frozen` needs a committed
+  lockfile; there wasn't one (no `uv` on the dev box). Installed `uv` via `pip`, ran
+  `uv lock`, committed it. Lesson: run the CI install command locally once before pushing a
+  new toolchain.
+- **"Recover from N adversarially-timed crashes" is not a fair property.** The first
+  crash-recovery property test forced a crash after *every* append forever — under which no
+  system makes progress (StepStarted persists → crash → recovery resets → repeat). Narrowed
+  it to "one crash at a varying point, spaced so forward progress is possible", which is the
+  real durability guarantee. The pathological version was testing physics, not the code.
+- **Separate `StepStarted` append buys observability but needs a reset path.** Persisting
+  `StepStarted` before running the attempt means a crashed worker leaves the step `RUNNING`;
+  the next driver must reset `RUNNING → READY` on pickup (added that transition + a
+  `_recover_in_flight` pass). The alternative — one atomic append after the runner returns —
+  is simpler but blinds you to in-flight work.
+- **Fencing has to be inside the append transaction.** A lease check before `append_new`
+  is TOCTOU. The guard runs as a callback *within* the append's transaction, re-reading the
+  lease row; combined with the `UNIQUE(instance_id, sequence)` version check, a worker that
+  lost its lease cannot write even under a partition.
+- **In-memory doubles were worth the cost.** Postgres isn't available on the dev box, so
+  the executor / driver / worker / recovery all got `InMemoryJournal` + `InMemoryLeaseStore`
+  doubles mirroring the PG semantics (version conflict, fence guard, claim gating). 63 unit
+  tests run with no infra; the PG-specific SQL gets thinner integration coverage in CI.

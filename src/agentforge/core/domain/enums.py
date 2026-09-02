@@ -102,7 +102,12 @@ STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
         {StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.WAITING_APPROVAL}
     ),
     StepStatus.RUNNING: frozenset(
-        {StepStatus.COMPLETED, StepStatus.FAILED, StepStatus.WAITING_APPROVAL}
+        {
+            StepStatus.COMPLETED,
+            StepStatus.FAILED,
+            StepStatus.WAITING_APPROVAL,
+            StepStatus.READY,  # recovery re-dispatches an in-flight step from a dead worker
+        }
     ),
     StepStatus.WAITING_APPROVAL: frozenset(
         {StepStatus.RUNNING, StepStatus.SKIPPED, StepStatus.FAILED}

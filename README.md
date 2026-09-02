@@ -4,8 +4,8 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 1 — event-sourced core.** The engine is being built phase by
-> phase; see [Roadmap](#roadmap).
+> Status: **Phase 2 — executor, leasing & recovery.** The engine is being built
+> phase by phase; see [Roadmap](#roadmap).
 
 ---
 
@@ -44,8 +44,8 @@ make install
 
 # 3. migrate + run
 make migrate
-make run-api      # http://localhost:8000/docs
-make run-worker   # in another shell
+make run-api      # http://localhost:8000/docs  (Phase 6)
+make run-worker   # in another shell — claims leases, drives workflows, recovers
 ```
 
 No `uv`? `python -m venv .venv && .venv/bin/pip install -e ".[dev,test,agents]"`.
@@ -74,8 +74,8 @@ docs/adr/          # architecture decision records
 |------:|-------|--------|
 | 0 | Scaffold: tooling, CI, compose, Alembic, config | ✅ |
 | 1 | Event-sourced core: domain models, DAG, event vocabulary, `fold`, snapshots, `EventStore` | ✅ |
-| 2 | Executor, worker/leasing, checkpoint/recovery | ⏳ |
-| 3 | Side-effect guard, DLQ, compensation | |
+| 2 | Step executor, worker leasing + heartbeat + fencing, workflow driver, crash recovery | ✅ |
+| 3 | Side-effect guard, DLQ management, compensation / rollback | ⏳ |
 | 4 | Cost router + pre-flight budget + LLM providers | |
 | 5 | Escalation / HITL + timers + WebSocket | |
 | 6 | FastAPI surface, auth, multi-tenancy, rate limiting | |
