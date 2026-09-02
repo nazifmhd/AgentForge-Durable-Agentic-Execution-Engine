@@ -7,6 +7,7 @@ tests can assemble their own graphs with doubles.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from agentforge.config import settings
 from agentforge.core.cost.budget import BudgetService, PgBudgetLedger
@@ -140,6 +141,34 @@ def build_engine(
         budget=budget,
         escalations=escalations,
         notifier=notifier,
+    )
+
+
+def build_api_deps(engine: Engine | None = None) -> Any:
+    """Assemble the ``ApiDeps`` bundle the FastAPI app reads from ``app.state``."""
+    from agentforge.api.deps import ApiDeps
+    from agentforge.api.middleware.rate_limit import RateLimiter
+    from agentforge.core.auth import AuthService, PgApiKeyStore
+    from agentforge.core.control import InstanceControl
+
+    engine = engine or build_engine()
+    sm = get_sessionmaker()
+    try:
+        redis: Any | None = get_redis()
+    except Exception:  # noqa: BLE001
+        log.warning("redis_unavailable_for_api")
+        redis = None
+
+    return ApiDeps(
+        auth=AuthService(PgApiKeyStore(sm)),
+        rate_limiter=RateLimiter(redis),
+        definitions=engine.definitions,
+        instances=engine.instances,
+        events=engine.events,
+        escalations=engine.escalations,
+        dead_letters=engine.dead_letters,
+        control=InstanceControl(engine.events),
+        redis=redis,
     )
 
 

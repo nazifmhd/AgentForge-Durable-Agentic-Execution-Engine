@@ -140,6 +140,17 @@ class InMemoryJournal:
     async def load(self, instance_id: str, tenant_id: str, *, after: int = 0) -> list[BaseEvent]:
         return [e for e in self._events.get(instance_id, []) if e.sequence > after]
 
+    async def state_at(
+        self,
+        instance_id: str,
+        tenant_id: str,
+        version: int,
+        *,
+        definition: WorkflowDefinition | None = None,
+    ) -> WorkflowInstance | None:
+        events = [e for e in self._events.get(instance_id, []) if e.sequence <= version]
+        return fold(events, definition=definition) if events else None
+
 
 @dataclass(slots=True)
 class _LeaseRow:
@@ -226,21 +237,61 @@ class InMemoryLeaseStore:
 class InMemoryDefinitions:
     def __init__(self) -> None:
         self._by_key: dict[tuple[str, str, str], WorkflowDefinition] = {}
+        self._active: dict[tuple[str, str], str] = {}  # (tenant, name) -> version
 
     def add(self, definition: WorkflowDefinition, *, tenant_id: str = "tenant-1") -> None:
         self._by_key[(tenant_id, definition.workflow_id, definition.version)] = definition
+        self._active[(tenant_id, definition.name)] = definition.version
+
+    async def register(
+        self, definition: WorkflowDefinition, *, tenant_id: str, activate: bool = True
+    ) -> WorkflowDefinition:
+        self.add(definition, tenant_id=tenant_id)
+        return definition
 
     async def get(
         self, workflow_id: str, version: str, *, tenant_id: str
     ) -> WorkflowDefinition | None:
         return self._by_key.get((tenant_id, workflow_id, version))
 
+    async def get_active(self, name: str, *, tenant_id: str) -> WorkflowDefinition | None:
+        version = self._active.get((tenant_id, name))
+        if version is None:
+            return None
+        for (t, _wid, v), defn in self._by_key.items():
+            if t == tenant_id and defn.name == name and v == version:
+                return defn
+        return None
+
+    async def list(self, *, tenant_id: str, active_only: bool = False) -> list[WorkflowDefinition]:
+        out = [d for (t, _w, _v), d in self._by_key.items() if t == tenant_id]
+        if active_only:
+            out = [d for d in out if self._active.get((tenant_id, d.name)) == d.version]
+        return sorted(out, key=lambda d: (d.name, d.version))
+
+
+@dataclass(slots=True)
+class _DlqRow:
+    id: int
+    instance_id: str
+    tenant_id: str
+    step_id: str | None
+    reason: str
+    error_type: str | None
+    error_message: str | None
+    at_version: int
+    resolved: bool
+    created_at: datetime
+
 
 class FakeDeadLetters:
     def __init__(self) -> None:
         self.records: list[dict] = []
+        self.rows: list[_DlqRow] = []
+        self._next_id = 1
 
     async def record(self, instance: WorkflowInstance, *, step_id: str | None, reason: str) -> None:
+        last = instance.error_history[-1] if instance.error_history else None
         self.records.append(
             {
                 "instance_id": instance.instance_id,
@@ -249,6 +300,57 @@ class FakeDeadLetters:
                 "version": instance.version,
             }
         )
+        self.rows.append(
+            _DlqRow(
+                id=self._next_id,
+                instance_id=instance.instance_id,
+                tenant_id=instance.tenant_id,
+                step_id=step_id,
+                reason=reason,
+                error_type=last.error_type if last else None,
+                error_message=last.error_message if last else None,
+                at_version=instance.version,
+                resolved=False,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        )
+        self._next_id += 1
+
+    async def list(
+        self, *, tenant_id: str, resolved: bool = False, limit: int = 100
+    ) -> list[_DlqRow]:
+        return [r for r in self.rows if r.tenant_id == tenant_id and r.resolved is resolved][:limit]
+
+    async def requeue(
+        self, dlq_id: int, *, tenant_id: str, journal: Any, requeued_by: str = "operator"
+    ) -> str:
+        from agentforge.core.events.types import WorkflowRequeued
+        from agentforge.exceptions import ConfigurationError
+
+        row = next((r for r in self.rows if r.id == dlq_id and r.tenant_id == tenant_id), None)
+        if row is None or row.resolved:
+            raise ConfigurationError(f"dead-letter {dlq_id} not requeuable")
+        instance = await journal.get_instance(row.instance_id, tenant_id)
+        if instance is None:
+            raise ConfigurationError("instance not found")
+        await journal.append_new(
+            row.instance_id,
+            tenant_id,
+            [
+                WorkflowRequeued(
+                    event_id="rq",
+                    instance_id=row.instance_id,
+                    tenant_id=tenant_id,
+                    sequence=1,
+                    occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    step_id=row.step_id,
+                    dlq_id=dlq_id,
+                )
+            ],
+            expected_version=instance.version,
+        )
+        row.resolved = True
+        return row.instance_id
 
 
 @dataclass(slots=True)
@@ -308,6 +410,41 @@ class RecordingActionProvider:
             raise RuntimeError(f"cannot undo {req.effect_name}")
         self.compensated.append(req)
         return EffectResult(ok=True, data={"undone": req.effect_name})
+
+
+class InMemoryApiKeyStore:
+    def __init__(self) -> None:
+        self._by_id: dict[str, Any] = {}
+
+    async def get(self, key_id: str) -> Any:
+        return self._by_id.get(key_id)
+
+    async def create(self, record: Any) -> None:
+        self._by_id[record.key_id] = record
+
+    async def touch(self, key_id: str, now: datetime) -> None:
+        return None
+
+
+class FakeRedis:
+    """Minimal async Redis for rate-limit + pubsub tests."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, int] = {}
+        self.published: list[tuple[str, bytes]] = []
+
+    async def incr(self, key: str) -> int:
+        self.store[key] = self.store.get(key, 0) + 1
+        return self.store[key]
+
+    async def expire(self, key: str, seconds: int) -> None:
+        return None
+
+    async def ping(self) -> bool:
+        return True
+
+    async def publish(self, channel: str, data: bytes) -> None:
+        self.published.append((channel, data))
 
 
 class InMemoryEscalationReadStore:

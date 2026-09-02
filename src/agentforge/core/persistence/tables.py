@@ -202,6 +202,23 @@ class TenantCostLedgerRow(Base):
     )
 
 
+class ApiKeyRow(Base):
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        PrimaryKeyConstraint("key_id"),
+        Index("ix_apikey_tenant", "tenant_id"),
+    )
+
+    key_id: Mapped[str] = mapped_column(String(32))
+    key_hash: Mapped[str] = mapped_column(String(64))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    principal_name: Mapped[str] = mapped_column(String(128))
+    scopes: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class EscalationRow(Base):
     """Read model for human-in-the-loop: queryable pending-escalation list and
     the deadline sweeper's work set. Rebuilt from ``Escalation*`` events."""

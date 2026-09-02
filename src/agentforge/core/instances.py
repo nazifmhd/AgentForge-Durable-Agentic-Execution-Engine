@@ -13,8 +13,7 @@ from agentforge.core.domain.definition import WorkflowDefinition
 from agentforge.core.domain.enums import TriggerSource
 from agentforge.core.domain.instance import WorkflowInstance
 from agentforge.core.events.types import InstanceCreated
-from agentforge.core.persistence.definition_repo import DefinitionRepository
-from agentforge.core.persistence.event_store import EventStore
+from agentforge.core.persistence.protocols import DefinitionSource, EventJournal
 from agentforge.core.ports import (
     SYSTEM_CLOCK,
     UUID_GENERATOR,
@@ -27,8 +26,8 @@ from agentforge.exceptions import ConfigurationError
 class InstanceService:
     def __init__(
         self,
-        event_store: EventStore,
-        definitions: DefinitionRepository,
+        event_store: EventJournal,
+        definitions: DefinitionSource,
         *,
         clock: Clock = SYSTEM_CLOCK,
         ids: IdGenerator = UUID_GENERATOR,
@@ -85,7 +84,7 @@ class InstanceService:
             trigger_source=trigger_source.value,
             trigger_metadata=trigger_metadata or {},
         )
-        await self._events.append(instance_id, tenant_id, [genesis], expected_version=0)
+        await self._events.append_new(instance_id, tenant_id, [genesis], expected_version=0)
         result = await self._events.get_instance(instance_id, tenant_id, definition=defn)
         assert result is not None
         return result

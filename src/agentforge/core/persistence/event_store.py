@@ -228,6 +228,20 @@ class EventStore:
                 session, instance_id, tenant_id, definition=definition, required=False
             )
 
+    async def state_at(
+        self,
+        instance_id: str,
+        tenant_id: str,
+        version: int,
+        *,
+        definition: WorkflowDefinition | None = None,
+    ) -> WorkflowInstance | None:
+        """Read-only time travel: the folded instance state as of ``version``."""
+        events = [e for e in await self.load(instance_id, tenant_id) if e.sequence <= version]
+        if not events:
+            return None
+        return fold(events, definition=definition)
+
     async def latest_snapshot(self, instance_id: str, tenant_id: str) -> Snapshot | None:
         async with self._sm() as session:
             snap = await self._load_snapshot(session, instance_id)

@@ -56,7 +56,12 @@ TERMINAL_WORKFLOW_STATUSES: frozenset[WorkflowStatus] = frozenset(
 # Allowed workflow status transitions. DEAD_LETTERED -> RUNNING covers operator replay.
 WORKFLOW_TRANSITIONS: dict[WorkflowStatus, frozenset[WorkflowStatus]] = {
     WorkflowStatus.PENDING: frozenset(
-        {WorkflowStatus.RUNNING, WorkflowStatus.FAILED, WorkflowStatus.ROLLED_BACK}
+        {
+            WorkflowStatus.RUNNING,
+            WorkflowStatus.PAUSED,  # operator can hold an instance before it starts
+            WorkflowStatus.FAILED,
+            WorkflowStatus.ROLLED_BACK,
+        }
     ),
     WorkflowStatus.RUNNING: frozenset(
         {

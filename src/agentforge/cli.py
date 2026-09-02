@@ -19,7 +19,7 @@ def version() -> None:
 
 @app.command()
 def api() -> None:
-    """Run the FastAPI server (implemented in Phase 6)."""
+    """Run the FastAPI server."""
     import uvicorn
 
     from agentforge.config import settings
@@ -31,6 +31,33 @@ def api() -> None:
         port=settings.api_port,
         log_config=None,
     )
+
+
+@app.command()
+def apikey(
+    tenant: str = typer.Option(..., help="tenant id this key belongs to"),
+    name: str = typer.Option("cli-key", help="human label for the key"),
+    scopes: str = typer.Option("admin", help="comma-separated scopes, or 'admin'"),
+) -> None:
+    """Mint an API key for a tenant and print it once."""
+    import asyncio
+
+    from agentforge.core.auth import PgApiKeyStore, mint_api_key
+    from agentforge.db import dispose_engine, get_sessionmaker
+
+    async def _main() -> None:
+        plaintext, record = mint_api_key(
+            tenant_id=tenant,
+            name=name,
+            scopes=[s.strip() for s in scopes.split(",") if s.strip()],
+        )
+        try:
+            await PgApiKeyStore(get_sessionmaker()).create(record)
+        finally:
+            await dispose_engine()
+        typer.echo(plaintext)
+
+    asyncio.run(_main())
 
 
 @app.command()

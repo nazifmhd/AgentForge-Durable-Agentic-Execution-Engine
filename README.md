@@ -4,8 +4,8 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 5 — human-in-the-loop.** The engine is being built phase by
-> phase; see [Roadmap](#roadmap).
+> Status: **Phase 6 — HTTP API.** The engine is being built phase by phase; see
+> [Roadmap](#roadmap).
 
 ---
 
@@ -44,9 +44,14 @@ make install
 
 # 3. migrate + run
 make migrate
-make run-api      # http://localhost:8000/docs  (Phase 6)
+make run-api      # http://localhost:8000/docs
 make run-worker   # in another shell — claims leases, drives workflows, recovers
+
+# 4. mint an API key (needs the DB up)
+uv run agentforge apikey --tenant acme --name laptop --scopes admin
 ```
+
+Then `curl -H "X-API-Key: af_…" localhost:8000/api/v1/workflows`.
 
 No `uv`? `python -m venv .venv && .venv/bin/pip install -e ".[dev,test,agents]"`.
 
@@ -78,8 +83,8 @@ docs/adr/          # architecture decision records
 | 3 | Side-effect guard (outbox + provider idempotency), `ActionProvider`, compensation/rollback, DLQ requeue | ✅ |
 | 4 | Config-driven model registry, cost-aware router, pre-flight budget (workflow + tenant/day), LLM providers | ✅ |
 | 5 | Escalation controller (resolve / skip / abort / budget-bump), deadline auto-actions, notifications, event pub/sub for streaming | ✅ |
-| 6 | FastAPI surface (incl. WebSocket instance stream), auth, multi-tenancy, rate limiting | ⏳ |
-| 7 | LangGraph agent runtime + base agents | |
+| 6 | FastAPI surface (workflows / instances / escalations / DLQ / webhooks / WebSocket stream), API-key + JWT auth with scopes, per-tenant rate limiting, RLS | ✅ |
+| 7 | LangGraph agent runtime + base agents | ⏳ |
 | 8 | Sales Intelligence reference implementation | |
 | 9 | Observability wiring, n8n adapter | |
 | 10 | Eval framework, prod compose/k8s, docs hardening | |

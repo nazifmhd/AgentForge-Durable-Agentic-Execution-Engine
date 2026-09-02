@@ -9,7 +9,7 @@ durability path — a bus outage degrades to "no live updates", never to lost st
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -79,7 +79,7 @@ class InstanceStream:
     def __init__(self, redis: Any) -> None:
         self._redis = redis
 
-    async def subscribe(self, instance_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def subscribe(self, instance_id: str) -> AsyncGenerator[dict[str, Any], None]:
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(_channel(instance_id))
         try:

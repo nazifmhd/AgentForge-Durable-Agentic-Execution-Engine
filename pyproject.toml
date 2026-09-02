@@ -27,6 +27,7 @@ dependencies = [
     "prometheus-client>=0.21",
     "typer>=0.15",
     "pyyaml>=6.0",
+    "pyjwt>=2.10",
 ]
 
 [project.optional-dependencies]
@@ -75,11 +76,24 @@ ignore = [
     "PLW0603",  # module-level singletons (engine, logging config) use `global` deliberately
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom is a call in an argument default.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Security",
+]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004", "S101", "PLC0415"]
 "migrations/**" = ["ALL"]
 "src/agentforge/cli.py" = ["PLC0415"]  # lazy imports keep CLI start-up cheap
 "src/agentforge/integrations/llm/**" = ["PLC0415"]  # SDKs live in the 'agents' extra — import lazily
+"src/agentforge/api/**" = ["PLC0415"]  # route handlers import heavy deps lazily
+"src/agentforge/bootstrap.py" = ["PLC0415"]  # composition root imports on demand to avoid cycles
 "src/agentforge/core/driver.py" = ["PLR0911", "PLR0912"]  # the workflow state machine is branchy by nature
 
 [tool.mypy]

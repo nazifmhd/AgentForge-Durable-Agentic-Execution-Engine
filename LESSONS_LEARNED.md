@@ -117,3 +117,28 @@ Real problems hit during the build and how they were solved. Added as they happe
 - **The WebSocket endpoint itself is Phase 6.** Phase 5 ships the pub/sub mechanism and a
   testable `InstanceStream` async iterator; the FastAPI route that relays it to a browser
   lands with the rest of the API surface.
+
+## Phase 6
+
+- **FastAPI 0.141's `_IncludedRouter` makes `len(app.routes)` misleading.** `include_router`
+  now stores a lazy wrapper instead of copying routes eagerly, so route counts look wrong
+  until resolved. Verify routing through `/openapi.json` or an actual request, not
+  `app.routes`.
+- **Ruff's `B008` fights the FastAPI DI idiom.** `Depends(...)` in an argument default is
+  the whole point of FastAPI. Added `fastapi.Depends`/`Query`/`Path`/… to
+  `flake8-bugbear.extend-immutable-calls`, and hoisted every `require(scope)` /
+  `rate_limited(bucket)` to a module-level singleton so the inner call isn't in the default.
+- **Operator control races the worker, and that's fine.** `pause`/`resume`/`abort` append
+  with no lease guard; if a worker is mid-drive the version bump makes its next append
+  `ConflictError` → it bails (`LEASE_LOST`) and the operator's transition stands. A short
+  optimistic retry rides out the window. Two new workflow transitions fell out:
+  `PENDING → PAUSED` and (Phase 5) `WAITING_APPROVAL → READY`.
+- **`InstanceService` shouldn't depend on `EventStore` the class.** Widened it to the
+  `EventJournal` / `DefinitionSource` protocols so the API tests can wire it to the same
+  in-memory doubles the engine tests use — the whole HTTP surface gets 9 tests with no DB.
+- **RLS is real but the test fixture uses `create_all`.** The `0006` migration enables
+  row-level security (permissive when the `agentforge.tenant_id` GUC is unset, so the
+  worker still sees everything); the integration test sets the GUC and asserts a WHERE-less
+  query is clamped — skipping when the policy isn't present (local fixture) and running in
+  CI where migrations apply first. Primary isolation is still the repository layer's
+  `tenant_id` on every query.

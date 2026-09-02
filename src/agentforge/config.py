@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_allow_origins: list[str] = Field(default_factory=list)
+    jwt_secret: str = "dev-only-insecure-secret-change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    api_key_pepper: str = "dev-only-insecure-pepper-change-me-in-production"
+    rate_limit_per_minute: int = 120
+    execute_rate_limit_per_minute: int = 30
+    webhook_shared_secret: str | None = None
 
     @field_validator("database_url", mode="before")
     @classmethod
