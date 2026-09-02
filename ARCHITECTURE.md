@@ -69,6 +69,22 @@ call it "exactly-once" for providers that support idempotency keys; others are
 - Budget is enforced **pre-flight**: if projected step cost > remaining workflow budget (or
   org daily budget), the step escalates instead of running.
 
+## Agent runtime
+
+- An agent is a LangGraph `StateGraph` wrapped as a `StepRunner` by `BaseAgent`. The graph
+  runs to completion inside one step attempt; LangGraph's checkpointer is **off** —
+  AgentForge owns durability at the step boundary (ADR-0006).
+- Graph state is a per-agent `TypedDict` (subclassing `AgentState`). The per-run
+  `StepContext` travels as the `ctx` channel, so node updates merge and concurrent step
+  attempts never share state — one agent instance serves the whole fleet.
+- Agents reach models only through `ctx.llm` (via `ask_text` / `ask_json`), so every call is
+  cost-routed, budget-checked, and auto-charged. Side effects go through `ctx.execute_effect`
+  (or an `EffectTool`), never a raw client.
+- Base agents: `PlannerAgent` (analyze → draft → critique → finalize), `ExecutorAgent`
+  (decide ↔ act loop with a hard tool-call cap), `ValidatorAgent` (structure → content →
+  verdict + score), `ReflectorAgent` (diagnose → revise). Registered into a `StepRegistry`
+  by `register_base_agents`.
+
 ## Multi-tenancy
 
 Every table carries `tenant_id`; every query is tenant-scoped at the repository layer.

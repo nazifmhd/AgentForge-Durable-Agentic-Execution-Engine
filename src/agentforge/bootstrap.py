@@ -88,7 +88,11 @@ def build_engine(
     providers: ProviderRegistry | None = None,
 ) -> Engine:
     sm = get_sessionmaker()
-    registry = registry or default_registry()
+    if registry is None:
+        registry = default_registry()
+        from agentforge.agents import register_base_agents
+
+        register_base_agents(registry)
     if providers is None:
         providers = ProviderRegistry()
         providers.register(NoopActionProvider())

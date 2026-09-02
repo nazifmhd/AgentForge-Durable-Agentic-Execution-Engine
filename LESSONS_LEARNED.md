@@ -142,3 +142,24 @@ Real problems hit during the build and how they were solved. Added as they happe
   query is clamped — skipping when the policy isn't present (local fixture) and running in
   CI where migrations apply first. Primary isolation is still the repository layer's
   `tenant_id` on every query.
+
+## Phase 7
+
+- **`StateGraph(dict)` replaces the whole state; a `TypedDict` schema merges per key.**
+  With an untyped `dict` schema, each node's returned dict becomes the entire new state —
+  `goal` and the threaded `ctx` vanished after the first node. Every agent now declares a
+  `TypedDict` state (subclassing `AgentState`, which carries `ctx`), so partial node updates
+  merge channel-by-channel and concurrent `.run()` calls never share state.
+- **The LangGraph checkpointer stays off (ADR-0006).** An agent's internal graph runs to
+  completion inside one step attempt; AgentForge owns durability at the step boundary. The
+  `StepContext` rides through graph state, not on the agent object, so one `PlannerAgent`
+  instance drives many steps concurrently.
+- **`ctx.llm` is the only way agents reach a model.** `ask_text` / `ask_json` wrap it, so
+  every agent call is cost-routed, budget-checked and auto-charged. `ask_json` tolerates
+  ```json fences and does one repair round before raising `MalformedOutputError`.
+- **The executor loop needs a hard cap, not just a model that says "final".** `_route`
+  checks `iterations < _MAX_TOOL_CALLS` independently of the decision, so a model that keeps
+  asking for tools still terminates and gets one synthesised final answer.
+- **`langgraph` is an optional extra.** `_load_langgraph()` imports lazily and raises
+  `ConfigurationError` with an install hint; `agents/**` is PLC0415-exempt like the other
+  lazy-import modules.
