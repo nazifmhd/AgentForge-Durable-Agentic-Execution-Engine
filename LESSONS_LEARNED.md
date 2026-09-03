@@ -245,3 +245,18 @@ Real problems hit during the build and how they were solved. Added as they happe
   `replicas: N` just works; a rolling update is safe mid-workflow because an
   evicted worker's leases expire and another reclaims the instance from its event
   log. Set `terminationGracePeriodSeconds` ≥ the lease length.
+
+## Final end-to-end pass — bug found
+
+- **`alembic upgrade head` was broken: no sync driver installed.** `migrations/env.py`
+  connects with `settings.sync_database_url` (`postgresql+psycopg://…`), but
+  `psycopg` was never a declared dependency. Nothing caught it: local dev has no
+  Postgres, the integration suite builds its schema with
+  `Base.metadata.create_all` (not Alembic), and CI is billing-locked. So
+  `make migrate`, the compose `migrate` service, and the k8s migrate Job would
+  all have failed on first deploy. Fix: `psycopg[binary]` is now a main
+  dependency, and `tests/unit/test_migrations.py` runs the whole chain in
+  `--sql` offline mode (no DB needed) as a fast guard.
+- **Lesson: a scaffolded-but-unexercised path is an untested path.** `env.py`
+  shipped in Phase 0 and was never actually run for six phases. Anything that
+  only runs at deploy time needs a test that runs it without the deploy.
