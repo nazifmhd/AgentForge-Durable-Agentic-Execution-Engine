@@ -120,8 +120,25 @@ API auth resolves a principal → tenant. Budgets, rate limits, and dashboards a
 ## Integrations are pluggable
 
 `core` never imports `httpx` for external actions. It depends on an `ActionProvider`
-protocol; implementations (`NativeActionProvider`, `N8nActionProvider`) live in
-`integrations/`. Same pattern for `LLMProvider` (Anthropic, OpenAI) and `Notifier`.
+protocol; implementations (`NoopActionProvider`, `HttpActionProvider`,
+`N8nActionProvider`) live in `integrations/`. `N8nActionProvider` maps each effect
+to an n8n webhook workflow (`{base}/webhook/{effect}`), passing the idempotency key
+as a header and optionally driving companion `/status` (reconcile) and
+`/compensate` webhooks. `bootstrap` registers it automatically when
+`AGENTFORGE_N8N_BASE_URL` is set. Same pattern for `LLMProvider` (Anthropic,
+OpenAI) and `Notifier`.
+
+## Observability
+
+`configure_observability()` (every entrypoint calls it) wires three signals:
+JSON logs with the active `trace_id` bound on every line; Prometheus metrics on
+the default registry (`agentforge_steps_total`, `agentforge_step_duration_seconds`,
+`agentforge_llm_cost_usd_total`, `agentforge_side_effects_total`,
+`agentforge_escalations_total`, `agentforge_workflow_drives_total`, …), scraped at
+`/metrics` on the API and, when `AGENTFORGE_WORKER_METRICS_PORT` is set, on the
+worker; and OTLP spans (`workflow.drive` → `workflow.step` → `llm.complete`, plus
+auto-instrumented FastAPI) exported when `AGENTFORGE_OTEL_EXPORTER_OTLP_ENDPOINT`
+is set. See [ADR-0011](docs/adr/0011-observability.md).
 
 ## ADR index
 
@@ -137,3 +154,4 @@ protocol; implementations (`NativeActionProvider`, `N8nActionProvider`) live in
 | [0008](docs/adr/0008-cost-aware-routing.md) | Config-driven cost-aware routing + pre-flight budget |
 | [0009](docs/adr/0009-optimistic-concurrency.md) | Optimistic concurrency at instance-level transitions |
 | [0010](docs/adr/0010-multi-tenancy.md) | Row-level multi-tenancy from day one |
+| [0011](docs/adr/0011-observability.md) | structlog + Prometheus + OTLP traces, one `configure_observability()` |

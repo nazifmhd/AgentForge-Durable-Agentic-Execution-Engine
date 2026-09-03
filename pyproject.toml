@@ -96,6 +96,7 @@ extend-immutable-calls = [
 "src/agentforge/bootstrap.py" = ["PLC0415"]  # composition root imports on demand to avoid cycles
 "src/agentforge/agents/**" = ["PLC0415"]  # langgraph lives in the 'agents' extra — import lazily
 "src/agentforge/use_cases/**" = ["PLC0415"]  # lazy imports for optional deps / cycle-avoidance
+"src/agentforge/observability/**" = ["PLC0415"]  # OTLP exporter / instrumentation imported on demand
 "src/agentforge/core/driver.py" = ["PLR0911", "PLR0912"]  # the workflow state machine is branchy by nature
 
 [tool.mypy]

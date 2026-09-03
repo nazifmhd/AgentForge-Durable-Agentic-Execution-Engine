@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # --- Observability ---------------------------------------------------
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "agentforge"
+    worker_metrics_port: int = 0  # >0 exposes Prometheus /metrics on the worker
 
     # --- API ---------------------------------------------------------------
     api_host: str = "0.0.0.0"

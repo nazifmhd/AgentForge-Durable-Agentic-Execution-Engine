@@ -28,7 +28,11 @@ from agentforge.core.recovery import RecoveryService
 from agentforge.core.runners import StepRegistry, default_registry
 from agentforge.core.side_effects import SideEffectGuard
 from agentforge.db import get_sessionmaker
-from agentforge.integrations.actions import NoopActionProvider, ProviderRegistry
+from agentforge.integrations.actions import (
+    NoopActionProvider,
+    ProviderRegistry,
+    build_n8n_provider,
+)
 from agentforge.integrations.llm import LLMProviderRegistry, build_provider
 from agentforge.integrations.notifications import (
     LogNotifier,
@@ -96,6 +100,11 @@ def build_engine(
     if providers is None:
         providers = ProviderRegistry()
         providers.register(NoopActionProvider())
+        if settings.n8n_base_url:
+            providers.register(
+                build_n8n_provider(base_url=settings.n8n_base_url, api_key=settings.n8n_api_key)
+            )
+            log.info("n8n_action_provider_registered", base_url=settings.n8n_base_url)
 
     models = ModelRegistry.from_path(settings.model_registry_path)
     router = CostAwareRouter(models)

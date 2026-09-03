@@ -19,14 +19,15 @@ from agentforge.api.routes import (
     workflows,
 )
 from agentforge.config import settings
-from agentforge.logging import configure_logging, get_logger
+from agentforge.logging import get_logger
+from agentforge.observability import configure_observability, instrument_fastapi
 
 log = get_logger("api")
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    configure_logging()
+    configure_observability()
     if not hasattr(app.state, "deps"):
         from agentforge.bootstrap import build_api_deps
 
@@ -65,4 +66,5 @@ def create_app(deps: ApiDeps | None = None) -> FastAPI:
     for module in (workflows, instances, escalations, dead_letters, webhooks, system):
         app.include_router(module.router)
 
+    instrument_fastapi(app)
     return app

@@ -2,9 +2,10 @@
 
 * :class:`NoopActionProvider` — records the call, does nothing external (default
   for dry runs / local dev).
-* :class:`HttpActionProvider` — POSTs the effect to a configured URL, passing the
-  idempotency key as a header. The native workhorse until the n8n adapter lands
-  in Phase 9.
+* :class:`HttpActionProvider` — POSTs the effect to a configured per-effect URL,
+  passing the idempotency key as a header. The generic native workhorse; see
+  :class:`~agentforge.integrations.actions.n8n.N8nActionProvider` for the n8n
+  webhook-workflow variant.
 """
 
 from __future__ import annotations

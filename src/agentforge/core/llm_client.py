@@ -30,6 +30,8 @@ from agentforge.integrations.llm.base import (
     LLMResponse,
 )
 from agentforge.logging import get_logger
+from agentforge.observability import metrics
+from agentforge.observability.tracing import span
 
 log = get_logger("llm_client")
 
@@ -101,15 +103,27 @@ class LLMClient:
                 max_tokens=max_tokens,
             )
             try:
-                resp = await provider.complete(req)
+                with span(
+                    "llm.complete", model=model.model_id, task_type=task_type, tier=tier.value
+                ):
+                    resp = await provider.complete(req)
             except _RETRYABLE_LLM as exc:
                 last_exc = exc
+                metrics.record_llm(model.model_id, outcome="retryable_error")
                 log.warning("llm_model_failed", model=model_key, error=str(exc))
                 continue
+            cost = model.cost_usd(resp.tokens_input, resp.tokens_output)
+            metrics.record_llm(
+                model.model_id,
+                outcome="ok",
+                tokens_in=resp.tokens_input,
+                tokens_out=resp.tokens_output,
+                cost_usd=cost,
+            )
             return LLMCompletion(
                 response=resp,
                 decision=decision,
-                cost_usd=model.cost_usd(resp.tokens_input, resp.tokens_output),
+                cost_usd=cost,
                 models_tried=tried,
             )
 

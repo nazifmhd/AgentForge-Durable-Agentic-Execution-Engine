@@ -46,6 +46,8 @@ from agentforge.exceptions import (
 )
 from agentforge.integrations.notifications import Notification, Notifier
 from agentforge.logging import get_logger
+from agentforge.observability import metrics
+from agentforge.observability.tracing import span
 
 log = get_logger("driver")
 
@@ -128,6 +130,17 @@ class WorkflowDriver:
             log.warning("escalation_notify_failed", instance_id=instance.instance_id)
 
     async def drive(self, lease: Lease, guard: Guard) -> DriveReport:
+        with span(
+            "workflow.drive",
+            instance_id=lease.instance_id,
+            workflow_id=lease.workflow_id,
+            worker_id=lease.worker_id,
+        ):
+            report = await self._drive(lease, guard)
+        metrics.record_drive(report.result.value)
+        return report
+
+    async def _drive(self, lease: Lease, guard: Guard) -> DriveReport:
         definition = await self._definitions.get(
             lease.workflow_id, lease.workflow_version, tenant_id=lease.tenant_id
         )
@@ -340,7 +353,19 @@ class WorkflowDriver:
                 llm_client=self._llm,
                 budget=budget_view,
             )
-            outcome = await self._executor.run_attempt(ctx, timeout_seconds=step.timeout_seconds)
+            started = self._clock.now()
+            with span(
+                "workflow.step",
+                instance_id=instance.instance_id,
+                step_id=sid,
+                agent_type=step.agent_type,
+                attempt=att,
+            ):
+                outcome = await self._executor.run_attempt(
+                    ctx, timeout_seconds=step.timeout_seconds
+                )
+            elapsed = (self._clock.now() - started).total_seconds()
+            metrics.record_step(step.agent_type, "success" if outcome.ok else "failure", elapsed)
             return sid, att, step, outcome
 
         results = await asyncio.gather(*(_one(sid, att) for sid, att in dispatch))
@@ -360,6 +385,11 @@ class WorkflowDriver:
                     )
                 )
             for eff in outcome.effects:
+                metrics.record_side_effect(
+                    eff.effect_name,
+                    guarantee=eff.guarantee,
+                    outcome="deduplicated" if eff.deduplicated else "executed",
+                )
                 if not eff.deduplicated:
                     drafts.append(
                         self._event(
@@ -490,6 +520,7 @@ class WorkflowDriver:
                 reason=reason,
             )
             await self._dead_letters.record(instance, step_id=step_id, reason=reason)
+            metrics.record_dead_letter()
             return DriveReport(instance.instance_id, DriveResult.DEAD_LETTERED)
 
         await self._transition(
@@ -528,6 +559,8 @@ class WorkflowDriver:
             ),
         ]
         await self._append(instance, definition, drafts, guard)
+        metrics.record_escalation("cost_threshold")
+        metrics.record_budget_refusal("workflow")
         await self._notify(instance, "cost_threshold", "a step's projected cost exceeds the budget")
         return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
@@ -643,6 +676,7 @@ class WorkflowDriver:
             ),
         ]
         await self._append(instance, definition, drafts, guard)
+        metrics.record_escalation("compensation_failed")
         await self._notify(instance, "compensation_failed", detail)
         return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
@@ -684,6 +718,7 @@ class WorkflowDriver:
                     auto_action=step.approval_auto_action,
                 )
             )
+            metrics.record_escalation("explicit_approval")
         drafts.append(
             self._event(
                 instance,
@@ -724,6 +759,7 @@ class WorkflowDriver:
             ),
         ]
         await self._append(instance, definition, drafts, guard)
+        metrics.record_budget_refusal("workflow")
         return DriveReport(instance.instance_id, DriveResult.PAUSED)
 
     # --- recovery --------------------------------------------------

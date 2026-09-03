@@ -16,6 +16,8 @@ import signal
 import socket
 from datetime import datetime
 
+from prometheus_client import start_http_server
+
 from agentforge.config import settings
 from agentforge.core.driver import DriveResult, WorkflowDriver
 from agentforge.core.escalation import EscalationController
@@ -23,6 +25,7 @@ from agentforge.core.leasing import Lease
 from agentforge.core.persistence.protocols import LeaseStore
 from agentforge.core.ports import SYSTEM_CLOCK, Clock
 from agentforge.logging import get_logger
+from agentforge.observability import configure_observability, metrics
 
 log = get_logger("worker")
 
@@ -63,6 +66,8 @@ class Worker:
 
     # --- lifecycle ---------------------------------------------------
     async def run(self) -> None:
+        configure_observability()
+        self._start_metrics_server()
         log.info("worker_start", worker_id=self.worker_id, concurrency=self._concurrency)
         background = [
             asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
@@ -160,6 +165,7 @@ class Worker:
     def _spawn(self, lease: Lease) -> None:
         task = asyncio.create_task(self._drive_one(lease), name=f"drive:{lease.instance_id}")
         self._active[lease.instance_id] = task
+        metrics.set_active_leases(self.worker_id, len(self._active))
         task.add_done_callback(lambda _t: self._wakeup.set())
 
     async def _drive_one(self, lease: Lease) -> None:
@@ -183,6 +189,7 @@ class Worker:
             with contextlib.suppress(Exception):
                 await self._leases.release(self.worker_id, lease.instance_id)
             self._active.pop(lease.instance_id, None)
+            metrics.set_active_leases(self.worker_id, len(self._active))
 
     async def _drain(self) -> None:
         if not self._active:
@@ -193,6 +200,17 @@ class Worker:
     # --- helpers -------------------------------------------------
     def _now(self) -> datetime:
         return self._clock.now()
+
+    @staticmethod
+    def _start_metrics_server() -> None:
+        port = settings.worker_metrics_port
+        if port <= 0:
+            return
+        try:
+            start_http_server(port)
+            log.info("worker_metrics_server", port=port)
+        except OSError:
+            log.warning("worker_metrics_server_bind_failed", port=port)
 
     async def run_once(self) -> list[DriveResult]:
         """Claim and drive everything currently runnable, once. For tests."""

@@ -4,7 +4,7 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 8 — reference workflow.** The engine is being built phase by phase; see
+> Status: **Phase 9 — observability & n8n.** The engine is being built phase by phase; see
 > [Roadmap](#roadmap).
 
 ---
@@ -86,8 +86,8 @@ docs/adr/          # architecture decision records
 | 6 | FastAPI surface (workflows / instances / escalations / DLQ / webhooks / WebSocket stream), API-key + JWT auth with scopes, per-tenant rate limiting, RLS | ✅ |
 | 7 | LangGraph agent runtime (`BaseAgent` graph wrapper) + base agents (planner / executor / validator / reflector), tool registry | ✅ |
 | 8 | Sales Intelligence & Outreach reference workflow (research → score → draft → send), ICP config, exactly-once dispatch with rollback, HITL approval on send | ✅ |
-| 9 | Observability wiring, n8n adapter | ⏳ |
-| 10 | Eval framework, prod compose/k8s, docs hardening | |
+| 9 | Observability wiring (structlog + Prometheus + OTLP traces, `configure_observability()`), n8n `ActionProvider` adapter | ✅ |
+| 10 | Eval framework, prod compose/k8s, docs hardening | ⏳ |
 
 ## Docs
 

@@ -9,12 +9,25 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import Any
 
 import structlog
+from opentelemetry import trace
 
 from agentforge.config import settings
 
 _configured = False
+
+
+def _add_trace_context(
+    _logger: Any, _method: str, event_dict: structlog.typing.EventDict
+) -> structlog.typing.EventDict:
+    """Bind the active OpenTelemetry trace/span ids onto every log line."""
+    ctx = trace.get_current_span().get_span_context()
+    if ctx.is_valid:
+        event_dict.setdefault("trace_id", f"{ctx.trace_id:032x}")
+        event_dict.setdefault("span_id", f"{ctx.span_id:016x}")
+    return event_dict
 
 
 def configure_logging() -> None:
@@ -27,6 +40,7 @@ def configure_logging() -> None:
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.StackInfoRenderer(),
+        _add_trace_context,
         timestamper,
     ]
 

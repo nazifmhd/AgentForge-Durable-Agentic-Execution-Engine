@@ -193,3 +193,30 @@ Real problems hit during the build and how they were solved. Added as they happe
   LLM call per node; a provider that returns canned text per call, in order, is
   the natural way to drive them. Lives in `tests/doubles.py` now, used by both
   the agent-runtime and sales-intelligence suites.
+
+## Phase 9
+
+- **OpenTelemetry lets you set the `TracerProvider` exactly once.** A second
+  `trace.set_tracer_provider(...)` logs "Overriding ... is not allowed" and is
+  ignored — which silently broke a per-test fixture that recreated the provider.
+  `configure_tracing()` now installs the SDK provider only if the current one
+  isn't already an SDK `TracerProvider`, and otherwise *only adds span
+  processors*. That is also the right production shape: idempotent, and a second
+  call from a different entrypoint just no-ops.
+- **`core` gets a metrics seam, not a metrics dependency.** `observability/metrics.py`
+  owns the `prometheus_client` objects and exposes `record_step` / `record_llm` /
+  `record_side_effect` / … . `core` calls those. The helpers are unconditionally
+  safe to call, so a worker (no HTTP, nothing scraping) still accumulates them and
+  a `AGENTFORGE_WORKER_METRICS_PORT` turns on its own `/metrics` with no code
+  change.
+- **Metric singletons make tests delta-based.** Prometheus metric objects live
+  for the process; the suite runs many tests against the same counters. Every
+  assertion reads the sample before and after and checks the difference.
+- **`SpanProcessor` is exported from `opentelemetry.sdk.trace`, not
+  `...trace.export`.** mypy's `attr-defined` caught the wrong import; the base
+  class lives one module up from `BatchSpanProcessor`.
+- **n8n is just an `ActionProvider` (ADR-0007 paying off).** `N8nActionProvider`
+  maps `effect_name` → `{base}/webhook/{effect}` with the idempotency key as a
+  header, and optional `/status` + `/compensate` companion webhooks for
+  `reconcile` / `compensate`. `bootstrap` registers it when
+  `AGENTFORGE_N8N_BASE_URL` is set; nothing in `core` changed.
