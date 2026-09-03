@@ -260,3 +260,18 @@ Real problems hit during the build and how they were solved. Added as they happe
 - **Lesson: a scaffolded-but-unexercised path is an untested path.** `env.py`
   shipped in Phase 0 and was never actually run for six phases. Anything that
   only runs at deploy time needs a test that runs it without the deploy.
+
+## n8n verification
+
+- **The n8n provider shipped with exactly-once effectively unreachable.**
+  `bootstrap` built it with no `idempotent_effects`, so every n8n effect got
+  `at_least_once_dedup` and `reconcile()` was never consulted — there was no
+  config knob to opt an effect into exactly-once. Added
+  `AGENTFORGE_N8N_IDEMPOTENT_EFFECTS` (CSV or JSON list); those effects now get
+  the dedup + reconcile path. An n8n webhook workflow only qualifies if it
+  actually honours the `Idempotency-Key` header, hence opt-in per effect.
+- **pydantic-settings JSON-decodes complex fields before validators run.** A
+  `list[str]` setting fed `foo,bar` from an env var blew up on `json.loads`
+  before the `mode="before"` validator saw it. Fix: `Annotated[list[str],
+  NoDecode]` so the raw string reaches the validator, which then handles both
+  CSV and a JSON list.

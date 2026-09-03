@@ -6,11 +6,12 @@ All settings are validated at process start. Nothing in the codebase reads
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -50,6 +51,20 @@ class Settings(BaseSettings):
     # --- Integrations ------------------------------------------------------
     n8n_base_url: str | None = None
     n8n_api_key: str | None = None
+    # Effect names whose n8n webhook workflow is built to honour the
+    # Idempotency-Key header — these get exactly-once (dedup + reconcile) instead
+    # of at-least-once. JSON list or comma-separated.
+    n8n_idempotent_effects: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
+    @field_validator("n8n_idempotent_effects", mode="before")
+    @classmethod
+    def _split_csv(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if s.startswith("["):
+            return json.loads(s)
+        return [part.strip() for part in s.split(",") if part.strip()]
 
     # --- Observability ---------------------------------------------------
     otel_exporter_otlp_endpoint: str | None = None

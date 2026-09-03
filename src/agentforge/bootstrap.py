@@ -122,9 +122,17 @@ def build_engine(
         providers.register(NoopActionProvider())
         if settings.n8n_base_url:
             providers.register(
-                build_n8n_provider(base_url=settings.n8n_base_url, api_key=settings.n8n_api_key)
+                build_n8n_provider(
+                    base_url=settings.n8n_base_url,
+                    api_key=settings.n8n_api_key,
+                    idempotent_effects=set(settings.n8n_idempotent_effects) or None,
+                )
             )
-            log.info("n8n_action_provider_registered", base_url=settings.n8n_base_url)
+            log.info(
+                "n8n_action_provider_registered",
+                base_url=settings.n8n_base_url,
+                exactly_once_effects=settings.n8n_idempotent_effects,
+            )
 
     models = ModelRegistry.from_path(settings.model_registry_path)
     router = CostAwareRouter(models)

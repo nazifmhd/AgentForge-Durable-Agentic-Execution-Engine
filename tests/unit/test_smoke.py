@@ -21,3 +21,9 @@ def test_settings_defaults() -> None:
 def test_exception_retryable_classification() -> None:
     assert LLMTimeoutError().retryable is True
     assert AgentForgeError().retryable is False
+
+
+def test_n8n_idempotent_effects_accepts_csv_or_json() -> None:
+    assert Settings(n8n_idempotent_effects="a, b ,c").n8n_idempotent_effects == ["a", "b", "c"]
+    assert Settings(n8n_idempotent_effects='["x","y"]').n8n_idempotent_effects == ["x", "y"]
+    assert Settings().n8n_idempotent_effects == []
