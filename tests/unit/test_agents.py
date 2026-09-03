@@ -12,6 +12,7 @@ from tests.doubles import (
     InMemoryDefinitions,
     InMemoryJournal,
     InMemoryLeaseStore,
+    ScriptedLLMProvider,
     seed_instance,
 )
 from tests.factories import make_step
@@ -35,7 +36,7 @@ from agentforge.core.executor import StepExecutor
 from agentforge.core.llm_client import LLMClient
 from agentforge.core.ports import FixedClock, SequentialIdGenerator
 from agentforge.core.runners import StepContext, StepRegistry
-from agentforge.integrations.llm.base import LLMProviderRegistry, LLMResponse
+from agentforge.integrations.llm.base import LLMProviderRegistry
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 TENANT = "tenant-1"
@@ -57,29 +58,6 @@ fallback_chains:
   standard: [m]
   premium: [m]
 """
-
-
-class ScriptedLLMProvider:
-    """Returns canned responses in order; falls back to the last one when exhausted."""
-
-    def __init__(self, script: list[str], *, name: str = "p") -> None:
-        self.name = name
-        self._script = list(script)
-        self.calls: list[Any] = []
-
-    async def complete(self, req: Any) -> LLMResponse:
-        self.calls.append(req)
-        idx = min(len(self.calls) - 1, len(self._script) - 1)
-        return LLMResponse(
-            model_id=req.model_id,
-            text=self._script[idx],
-            tokens_input=10,
-            tokens_output=10,
-            stop_reason="end_turn",
-        )
-
-    async def count_tokens(self, req: Any) -> int | None:
-        return None
 
 
 def _client(provider: ScriptedLLMProvider) -> LLMClient:

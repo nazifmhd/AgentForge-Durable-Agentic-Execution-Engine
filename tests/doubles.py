@@ -523,6 +523,35 @@ class FakeLLMProvider:
         return None
 
 
+class ScriptedLLMProvider:
+    """LLM provider that returns canned text per call, in order.
+
+    Exhausting the script repeats the last entry. Use it to drive multi-node
+    agent graphs where each node makes one LLM call.
+    """
+
+    def __init__(self, script: Sequence[str], *, name: str = "p") -> None:
+        self.name = name
+        self._script = list(script)
+        self.calls: list[Any] = []
+
+    async def complete(self, req: Any) -> Any:
+        from agentforge.integrations.llm.base import LLMResponse
+
+        self.calls.append(req)
+        idx = min(len(self.calls) - 1, len(self._script) - 1)
+        return LLMResponse(
+            model_id=req.model_id,
+            text=self._script[idx] if self._script else "",
+            tokens_input=10,
+            tokens_output=10,
+            stop_reason="end_turn",
+        )
+
+    async def count_tokens(self, req: Any) -> int | None:
+        return None
+
+
 async def seed_instance(
     journal: InMemoryJournal,
     definition: WorkflowDefinition,

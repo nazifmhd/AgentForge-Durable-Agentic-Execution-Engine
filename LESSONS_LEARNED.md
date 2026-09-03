@@ -163,3 +163,33 @@ Real problems hit during the build and how they were solved. Added as they happe
 - **`langgraph` is an optional extra.** `_load_langgraph()` imports lazily and raises
   `ConfigurationError` with an install hint; `agents/**` is PLC0415-exempt like the other
   lazy-import modules.
+
+## Phase 8
+
+- **The DAG has no conditional edges — branching lives in the agents.** The driver
+  runs every step of a definition; there is no "skip the rest" signal. The
+  disqualified-lead path is modelled by the `draft_outreach` and `send` agents
+  reading the upstream `score.tier` and short-circuiting to a `{"skipped": true}`
+  output *before any LLM call or side effect*. The workflow still COMPLETES with
+  all four steps; three of them just did nothing expensive.
+- **Flatten step outputs that the next step consumes directly.** `_resolve_inputs`
+  puts each dependency's output under its `step_id` key. The scoring step returns
+  the `LeadScore` dict *as* its output (not wrapped in `{"score": ...}`), so a
+  downstream `ctx.inputs["score"]["tier"]` reads cleanly instead of
+  `["score"]["score"]["tier"]`.
+- **A step that needs a non-adjacent ancestor's output must depend on it.**
+  `draft_outreach` needs the dossier (from `research`) and the score (from
+  `score`), so it lists both as `dependencies` even though `score` already
+  depends on `research`. Dependencies are the only way data reaches a step.
+- **`requires_approval` is a step-definition flag, not agent logic.** The send
+  agent has no idea approval happened; the driver escalates before dispatching
+  the step and only runs it once the escalation resolves `approve`. Keeps the
+  agent testable in isolation.
+- **The ICP tier decision is code, not model output.** The LLM returns a fit
+  score and cited evidence; `_calibrate` clamps it and applies the YAML
+  thresholds + disqualifier check. The model can be wrong about a number; it
+  can't silently flip a qualify/disqualify decision.
+- **Shared test double: `ScriptedLLMProvider`.** Multi-node agent graphs make one
+  LLM call per node; a provider that returns canned text per call, in order, is
+  the natural way to drive them. Lives in `tests/doubles.py` now, used by both
+  the agent-runtime and sales-intelligence suites.

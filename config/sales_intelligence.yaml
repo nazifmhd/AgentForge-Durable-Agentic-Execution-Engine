@@ -1,0 +1,32 @@
+# Ideal Customer Profile for the Sales Intelligence reference workflow.
+# Loaded by agentforge.use_cases.sales_intelligence.config.load_icp().
+
+name: mid-market-saas
+target_industries:
+  - software
+  - saas
+  - fintech
+  - e-commerce
+min_headcount: 50
+max_headcount: 5000
+target_titles:
+  - VP Engineering
+  - Head of Platform
+  - Director of Engineering
+  - CTO
+  - VP Operations
+required_signals:
+  - hiring for platform / infrastructure roles
+  - recent funding round
+  - public mention of scaling or reliability pain
+disqualifiers:
+  - direct competitor
+  - existing customer
+  - headcount under 20
+  - government / defense
+
+# Score bands (0-100). At or above hot_threshold -> "hot", warm_threshold -> "warm",
+# qualify_threshold -> "cold", below it (or any disqualifier hit) -> "disqualified".
+hot_threshold: 75
+warm_threshold: 50
+qualify_threshold: 25

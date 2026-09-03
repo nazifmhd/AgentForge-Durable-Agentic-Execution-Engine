@@ -12,7 +12,8 @@ Orchestration
   │    event store · state machine · scheduler (DAG + leasing) · executor
   │    checkpoint/recovery · side-effect guard · cost router · budget
   │    escalation controller · dead-letter
-  └─ Agent Runtime (LangGraph)   planner · executor · validator · reflector
+  ├─ Agent Runtime (LangGraph)   planner · executor · validator · reflector
+  └─ Use cases (on top of the engine)   Sales Intelligence & Outreach
         │
 Infrastructure
   PostgreSQL (+pgvector) · Redis · Object store · OTel Collector · Prometheus · Grafana
@@ -84,6 +85,32 @@ call it "exactly-once" for providers that support idempotency keys; others are
   (decide ↔ act loop with a hard tool-call cap), `ValidatorAgent` (structure → content →
   verdict + score), `ReflectorAgent` (diagnose → revise). Registered into a `StepRegistry`
   by `register_base_agents`.
+
+## Reference implementation — Sales Intelligence & Outreach
+
+`use_cases/sales_intelligence/` is a full workflow built the way a real one would
+be, and the engine's acceptance test:
+
+    research ──▶ score ──▶ draft_outreach ──▶ send
+
+- **research** — a LangGraph agent that calls read-only tools (`crm_lookup`,
+  `web_enrich` — injectable, inert by default) then an LLM to assemble a
+  `ResearchDossier`.
+- **score** — the LLM proposes a 0-100 fit score with evidence; the **tier**
+  (hot / warm / cold / disqualified) is derived in code from the `ICPProfile`
+  thresholds (`config/sales_intelligence.yaml`), so qualify/disqualify is
+  auditable. A `disqualified` tier makes the next two steps no-ops — **no LLM
+  spend, no side effects** — showing the cost-efficiency pillar.
+- **draft_outreach** — writes and self-reviews the email + LinkedIn copy against
+  a house style, with one revision pass if the reviewer flags issues.
+- **send** — creates a CRM task and enqueues the email through
+  `execute_effect` (outbox + provider idempotency key), so a crash or retry never
+  double-sends. `requires_approval` by default (HITL); `on_failure=ROLLBACK`
+  cancels the CRM task and recalls the email if the send fails.
+
+The two side effects go through an `ActionProvider` (`InMemorySalesProvider` for
+tests / demo, `WebhookSalesProvider` for a real CRM+ESP), never a client in the
+agent.
 
 ## Multi-tenancy
 
