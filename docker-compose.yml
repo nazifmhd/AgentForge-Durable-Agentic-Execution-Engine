@@ -54,6 +54,8 @@ services:
     ports: ["3000:3000"]
     volumes:
       - grafanadata:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   # n8n is optional — only needed when exercising the n8n ActionProvider adapter.
   n8n:

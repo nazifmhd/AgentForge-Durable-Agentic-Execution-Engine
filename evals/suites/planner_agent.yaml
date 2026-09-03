@@ -1,0 +1,38 @@
+name: planner-agent-smoke
+target: planner_agent
+description: The planner turns a goal into an ordered, concrete plan.
+threshold: 0.75
+
+cases:
+  - name: deploy-a-service
+    inputs:
+      goal: Deploy a new REST service to production with monitoring and a rollback plan.
+    checks:
+      - scorer: non_empty
+        args: { path: analysis }
+      - scorer: json_keys
+        args: { path: plan.0, required: [step, rationale, depends_on] }
+      - scorer: llm_judge
+        args:
+          path: plan
+          rubric: >
+            A good plan has 4-10 concrete, ordered steps a junior engineer could
+            follow, covers monitoring and rollback, and its depends_on indices are
+            consistent. Penalise vague steps like "set things up".
+          threshold: 0.6
+
+  - name: migrate-database
+    inputs:
+      goal: Migrate a 200GB Postgres table to a new schema with zero downtime.
+      constraints: [no maintenance window, must be reversible]
+    checks:
+      - scorer: contains
+        args: { path: plan, substrings: [backfill] }
+      - scorer: llm_judge
+        args:
+          path: plan
+          rubric: >
+            The plan should use an expand/backfill/contract style migration,
+            mention dual-writes or a shadow column, and include a verification
+            step before cutover.
+          threshold: 0.6

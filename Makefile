@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint type test test-unit test-integration fmt migrate migration up down logs run-api run-worker
+.PHONY: help install lint type test test-unit test-integration fmt migrate migration up down logs run-api run-worker eval prod-up prod-down
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -45,3 +45,12 @@ run-api: ## Run API server
 
 run-worker: ## Run an execution worker
 	uv run agentforge worker
+
+eval: ## Run an eval suite: make eval s=evals/suites/sales_scoring.yaml
+	uv run agentforge eval $(s)
+
+prod-up: ## Bring up the production-shaped stack (needs .env.prod)
+	docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+prod-down: ## Stop the production-shaped stack
+	docker compose -f docker-compose.prod.yml down

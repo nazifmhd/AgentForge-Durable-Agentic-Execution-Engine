@@ -1,0 +1,38 @@
+# Workers coordinate purely through Postgres leases (ADR-0004): scale replicas
+# freely, no leader election. A rolling update drains gracefully — a killed
+# worker's leases expire and another reclaims them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentforge-worker
+  labels: { app.kubernetes.io/name: agentforge, app.kubernetes.io/component: worker }
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate: { maxUnavailable: 1, maxSurge: 1 }
+  selector:
+    matchLabels: { app.kubernetes.io/name: agentforge, app.kubernetes.io/component: worker }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: agentforge, app.kubernetes.io/component: worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: worker
+          image: agentforge
+          args: ["worker"]
+          ports:
+            - { name: metrics, containerPort: 9100 }
+          envFrom:
+            - configMapRef: { name: agentforge-config }
+            - secretRef: { name: agentforge-secrets }
+          resources:
+            requests: { cpu: 200m, memory: 384Mi }
+            limits: { cpu: "2", memory: 1Gi }

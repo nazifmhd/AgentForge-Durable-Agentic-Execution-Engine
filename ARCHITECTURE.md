@@ -20,6 +20,8 @@ Infrastructure
   n8n (optional, via ActionProvider adapter)
 ```
 
+Offline: `agentforge.evals` scores agents against YAML datasets (`agentforge eval`).
+
 ## Core execution model — event sourcing
 
 An instance's authoritative state is **not** a mutable row; it is the ordered fold of its
@@ -139,6 +141,25 @@ the default registry (`agentforge_steps_total`, `agentforge_step_duration_second
 worker; and OTLP spans (`workflow.drive` → `workflow.step` → `llm.complete`, plus
 auto-instrumented FastAPI) exported when `AGENTFORGE_OTEL_EXPORTER_OTLP_ENDPOINT`
 is set. See [ADR-0011](docs/adr/0011-observability.md).
+
+## Evals
+
+`agentforge.evals` is an offline harness (no engine, no DB): a YAML *suite* names
+a target `agent_type` and a list of cases; `EvalRunner` runs the agent per case
+with the real cost-routed `LLMClient` and scores the output with named scorers
+(`equals`, `one_of`, `in_range`, `json_keys`, `contains`, `regex`, `non_empty`,
+and `llm_judge` for a model-graded rubric). `agentforge eval <suite>` prints a
+per-check report and exits non-zero below the suite threshold, so agent quality
+is a CI gate. See [docs/evals.md](docs/evals.md).
+
+## Deployment
+
+One image, two roles (`api` / `worker`); `agentforge-migrate` runs Alembic to
+head before new code serves. Workers are lease-coordinated (ADR-0004) so they
+scale by replica count with no leader election and roll safely mid-workflow.
+`docker-compose.prod.yml` and the Kustomize base in `deploy/k8s/` are the
+reference deployments; [docs/deployment.md](docs/deployment.md) and
+[docs/operations.md](docs/operations.md) cover the rest.
 
 ## ADR index
 

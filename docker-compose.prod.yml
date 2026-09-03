@@ -1,0 +1,104 @@
+# Production-shaped compose: the app image runs api + worker; infra alongside.
+# Real deployments point DATABASE_URL / REDIS_URL at managed services and drop the
+# postgres / redis services here. Secrets come from an env file, never the image.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+name: agentforge
+
+x-app: &app
+  image: ${AGENTFORGE_IMAGE:-agentforge:latest}
+  build:
+    context: .
+    target: production
+  env_file: [.env.prod]
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  migrate:
+    <<: *app
+    command: ["-c", "alembic upgrade head"]
+    entrypoint: ["sh"]
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["api"]
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/ready').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["worker"]
+    environment:
+      AGENTFORGE_WORKER_METRICS_PORT: "9100"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      replicas: 2
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-agentforge}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redisdata:/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: ["./deploy/otel-collector.yaml:/etc/otel/config.yaml:ro"]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes: ["./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD}
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  grafanadata:

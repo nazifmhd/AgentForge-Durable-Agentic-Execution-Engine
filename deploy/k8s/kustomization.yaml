@@ -1,0 +1,26 @@
+# Reference manifests. `kubectl apply -k deploy/k8s` after editing secret.yaml
+# and pointing image: at your registry. Postgres and Redis are assumed to be
+# managed services reachable from the cluster (set their URLs in secret.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: agentforge
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - migrate-job.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-hpa.yaml
+  - worker-deployment.yaml
+  - servicemonitor.yaml
+
+images:
+  - name: agentforge
+    newName: ghcr.io/nazifmhd/agentforge
+    newTag: latest
+
+commonLabels:
+  app.kubernetes.io/part-of: agentforge

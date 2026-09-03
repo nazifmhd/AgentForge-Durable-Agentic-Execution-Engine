@@ -1,0 +1,14 @@
+# Requires the Prometheus Operator. Without it, use the prometheus.io/scrape
+# pod annotations already on the deployments.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: agentforge
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/part-of: agentforge }
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+    - port: metrics
+      path: /metrics

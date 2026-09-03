@@ -1,0 +1,22 @@
+# Runs Alembic to head before a rollout. Wire into CI/CD as a pre-deploy step,
+# or let Argo/Flux apply it as a pre-sync hook.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentforge-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: agentforge
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: agentforge-config }
+            - secretRef: { name: agentforge-secrets }

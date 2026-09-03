@@ -1,0 +1,70 @@
+{
+  "title": "AgentForge — Overview",
+  "uid": "agentforge-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Drive results / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (result) (rate(agentforge_workflow_drives_total[5m]))", "legendFormat": "{{result}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Step p95 latency (s) by agent",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, agent_type) (rate(agentforge_step_duration_seconds_bucket[5m])))", "legendFormat": "{{agent_type}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Step failure rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(agentforge_steps_total{outcome=\"failure\"}[5m])) / clamp_min(sum(rate(agentforge_steps_total[5m])), 0.001)", "legendFormat": "failure fraction" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM spend $/hour by model",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum by (model) (rate(agentforge_llm_cost_usd_total[1h])) * 3600", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Escalations / sec by reason",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(agentforge_escalations_total[15m]))", "legendFormat": "{{reason}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Side effects / sec",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        { "expr": "sum by (outcome) (rate(agentforge_side_effects_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Dead letters (24h)",
+      "gridPos": { "h": 8, "w": 4, "x": 16, "y": 16 },
+      "targets": [{ "expr": "increase(agentforge_dead_letters_total[24h])" }]
+    },
+    {
+      "type": "stat",
+      "title": "Active leases",
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 16 },
+      "targets": [{ "expr": "sum(agentforge_active_leases)" }]
+    }
+  ]
+}

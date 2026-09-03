@@ -1,0 +1,57 @@
+name: sales-scoring
+target: sales_scoring_agent
+description: The scoring agent qualifies a researched lead against the ICP.
+threshold: 0.8
+
+cases:
+  - name: strong-fit-hot
+    inputs:
+      research:
+        lead:
+          company_name: Northwind Retail
+          contact_title: VP Engineering
+        dossier:
+          industry: software
+          headcount_estimate: 400
+          buying_signals:
+            - hiring 4 platform engineers
+            - Series C announced last month
+          pain_hypotheses: [scaling checkout traffic]
+    checks:
+      - scorer: one_of
+        args: { path: tier, options: [hot, warm] }
+      - scorer: in_range
+        args: { path: fit_score, min: 55, max: 100 }
+      - scorer: non_empty
+        args: { path: rationale }
+
+  - name: existing-customer-disqualified
+    inputs:
+      research:
+        lead:
+          company_name: Acme (current customer)
+          contact_title: CTO
+        dossier:
+          industry: software
+          headcount_estimate: 300
+          buying_signals: []
+          notes: Acme is already a paying customer on the enterprise plan.
+    checks:
+      - scorer: equals
+        args: { path: tier, value: disqualified }
+
+  - name: too-small
+    inputs:
+      research:
+        lead:
+          company_name: Tiny Co
+          contact_title: Founder
+        dossier:
+          industry: software
+          headcount_estimate: 6
+          buying_signals: []
+    checks:
+      - scorer: one_of
+        args: { path: tier, options: [cold, disqualified] }
+      - scorer: in_range
+        args: { path: fit_score, min: 0, max: 55 }

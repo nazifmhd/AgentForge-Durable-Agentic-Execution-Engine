@@ -220,3 +220,28 @@ Real problems hit during the build and how they were solved. Added as they happe
   header, and optional `/status` + `/compensate` companion webhooks for
   `reconcile` / `compensate`. `bootstrap` registers it when
   `AGENTFORGE_N8N_BASE_URL` is set; nothing in `core` changed.
+
+## Phase 10
+
+- **The eval harness reuses `StepContext` + the real `LLMClient`.** An eval case
+  is just `inputs` → `StepContext` → `runner.run()` → score the output dict. No
+  parallel "eval-only" agent path to drift out of sync; a scorer sees exactly
+  what a production step would produce, and cost/token roll-ups come straight off
+  `ctx.charges`.
+- **Partial credit, hard case verdict.** A case passes only if every check
+  passes, but the suite `pass_rate` is the mean of each case's *weighted score* —
+  so a suite that regresses from "all checks green" to "most checks green" moves
+  the number instead of flipping a single boolean. The CLI exits on
+  `pass_rate >= threshold`.
+- **`llm_judge` degrades soft.** No judge `LLMClient` → the check fails with a
+  clear detail string rather than raising, so a suite that mixes deterministic
+  and model-graded checks still runs (and reports) without a key for a quick
+  structural pass.
+- **One image, `CMD` picks the role.** `api` vs `worker` is a command arg, not a
+  separate build. The compose `migrate` service / k8s Job gates the rollout;
+  event-sourcing keeps migrations additive so a new worker and an old worker can
+  run against the same schema during a rollout.
+- **Workers need no leader election in k8s.** Lease coordination (ADR-0004) means
+  `replicas: N` just works; a rolling update is safe mid-workflow because an
+  evicted worker's leases expire and another reclaims the instance from its event
+  log. Set `terminationGracePeriodSeconds` ≥ the lease length.

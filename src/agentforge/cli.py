@@ -61,6 +61,33 @@ def apikey(
 
 
 @app.command()
+def eval(
+    suite: str = typer.Argument(..., help="path to an eval suite YAML"),
+    json_out: str = typer.Option("", "--json", help="also write the report as JSON here"),
+    threshold: float = typer.Option(-1.0, help="override the suite's pass threshold (0-1)"),
+) -> None:
+    """Run an agent eval suite and print a report (exit 1 if below threshold)."""
+    import asyncio
+
+    from agentforge.bootstrap import build_agent_registry, build_llm
+    from agentforge.evals import EvalRunner, load_suite, render_text, write_json
+    from agentforge.observability import configure_observability
+
+    async def _main() -> None:
+        configure_observability()
+        spec = load_suite(suite)
+        if threshold >= 0:
+            spec = spec.model_copy(update={"threshold": threshold})
+        report = await EvalRunner(build_agent_registry(), build_llm()).run_suite(spec)
+        typer.echo(render_text(report))
+        if json_out:
+            write_json(report, json_out)
+        raise typer.Exit(0 if report.passed else 1)
+
+    asyncio.run(_main())
+
+
+@app.command()
 def worker() -> None:
     """Run an execution worker: claim leases, drive workflows, heartbeat, recover."""
     import asyncio

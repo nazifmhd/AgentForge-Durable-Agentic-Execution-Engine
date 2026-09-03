@@ -87,6 +87,26 @@ def _build_notifier() -> Notifier:
     return LogNotifier()
 
 
+def build_llm() -> LLMClient:
+    """Just the cost-aware LLM client (no database) — for evals and one-off scripts."""
+    models = ModelRegistry.from_path(settings.model_registry_path)
+    return LLMClient(CostAwareRouter(models), models, _build_llm_providers())
+
+
+def build_agent_registry() -> StepRegistry:
+    """A ``StepRegistry`` with the base agents and the Sales Intelligence agents."""
+    from agentforge.agents import register_base_agents
+    from agentforge.use_cases.sales_intelligence import (
+        default_icp,
+        register_sales_intelligence,
+    )
+
+    registry = default_registry()
+    register_base_agents(registry)
+    register_sales_intelligence(registry, icp=default_icp())
+    return registry
+
+
 def build_engine(
     registry: StepRegistry | None = None,
     providers: ProviderRegistry | None = None,

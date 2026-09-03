@@ -4,8 +4,9 @@
 crashes and retries with transactional guarantees, route each step to the cheapest capable
 model, and pause for a human when confidence is low — all auditable and replayable.
 
-> Status: **Phase 9 — observability & n8n.** The engine is being built phase by phase; see
-> [Roadmap](#roadmap).
+> Status: **feature-complete** (all 10 phases). Event-sourced core, crash recovery, exactly-once
+> effects, cost routing, HITL, HTTP API, LangGraph agents, a reference workflow, observability,
+> an eval harness, and deploy manifests. See the [Roadmap](#roadmap).
 
 ---
 
@@ -55,6 +56,33 @@ Then `curl -H "X-API-Key: af_…" localhost:8000/api/v1/workflows`.
 
 No `uv`? `python -m venv .venv && .venv/bin/pip install -e ".[dev,test,agents]"`.
 
+### Run the reference workflow
+
+`use_cases/sales_intelligence/` is a complete workflow (research → score → draft →
+send) that exercises the whole engine. Register it, then trigger an instance:
+
+```python
+from agentforge.bootstrap import build_engine
+from agentforge.use_cases.sales_intelligence import sales_intelligence_workflow, load_icp
+# build_engine() auto-registers the agents; register the workflow definition, then
+# POST /api/v1/workflows/sales-intelligence/execute with a lead in `context`.
+```
+
+### Evals
+
+```bash
+uv run agentforge eval evals/suites/sales_scoring.yaml   # needs an LLM API key
+```
+
+Scores an agent against a YAML dataset, prints a per-check report, exits non-zero
+below the suite threshold. See [docs/evals.md](docs/evals.md).
+
+### Deploy
+
+`docker-compose.prod.yml` (one-shot migrate → api + workers + observability) or
+the Kustomize base in `deploy/k8s/`. See [docs/deployment.md](docs/deployment.md)
+and the [operations runbook](docs/operations.md).
+
 ## Layout
 
 ```
@@ -65,12 +93,15 @@ src/agentforge/
   agents/          # base agent interfaces (planner / executor / validator / reflector)
   api/             # FastAPI surface, auth, middleware, websockets
   integrations/    # ActionProvider (native + n8n adapter), LLM providers, notifications
-  observability/   # OpenTelemetry, structured logging, health
+  observability/   # OpenTelemetry tracing, Prometheus metrics, structured logging
   use_cases/       # reference implementation: sales_intelligence
-config/models.yaml # cost-aware model registry
+  evals/           # offline eval harness (agentforge eval)
+config/            # models.yaml (cost registry), sales_intelligence.yaml (ICP)
+evals/suites/      # shipped eval datasets
 migrations/        # Alembic
-tests/             # unit / integration / evals
-docs/adr/          # architecture decision records
+deploy/            # k8s manifests, Grafana dashboards, otel/prometheus config
+tests/             # unit / integration
+docs/              # adr/, evals.md, operations.md, deployment.md
 ```
 
 ## Roadmap
@@ -87,12 +118,15 @@ docs/adr/          # architecture decision records
 | 7 | LangGraph agent runtime (`BaseAgent` graph wrapper) + base agents (planner / executor / validator / reflector), tool registry | ✅ |
 | 8 | Sales Intelligence & Outreach reference workflow (research → score → draft → send), ICP config, exactly-once dispatch with rollback, HITL approval on send | ✅ |
 | 9 | Observability wiring (structlog + Prometheus + OTLP traces, `configure_observability()`), n8n `ActionProvider` adapter | ✅ |
-| 10 | Eval framework, prod compose/k8s, docs hardening | ⏳ |
+| 10 | Offline eval harness (`agentforge eval`, scorers + LLM judge, CI-gate exit code), production compose + Kubernetes manifests + Grafana dashboard, ops/deploy docs | ✅ |
 
 ## Docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — component design and the ADR index
-- [docs/adr/](docs/adr/) — decision records
+- [docs/adr/](docs/adr/) — decision records (11)
+- [docs/evals.md](docs/evals.md) — the eval harness and scorers
+- [docs/deployment.md](docs/deployment.md) — compose + Kubernetes
+- [docs/operations.md](docs/operations.md) — runbook: what to watch, DLQ triage, cost control
 - `LESSONS_LEARNED.md` — added as real problems are hit
 
 ## License
