@@ -572,6 +572,9 @@ class WorkflowDriver:
         if st is not None and st.error_type == "BudgetExceededError":
             return await self._escalate_cost_threshold(instance, definition, step_id, guard)
 
+        if definition.on_failure == OnFailure.ESCALATE:
+            return await self._escalate_max_retries(instance, definition, step_id, reason, guard)
+
         if definition.on_failure == OnFailure.ROLLBACK:
             return await self._rollback(instance, definition, reason, guard)
 
@@ -597,6 +600,41 @@ class WorkflowDriver:
             reason=reason,
         )
         return DriveReport(instance.instance_id, DriveResult.PAUSED)
+
+    async def _escalate_max_retries(
+        self,
+        instance: WorkflowInstance,
+        definition: WorkflowDefinition,
+        step_id: str,
+        reason: str,
+        guard: Guard,
+    ) -> DriveReport:
+        st = instance.step_states.get(step_id)
+        drafts: list[BaseEvent] = [
+            self._event(
+                instance,
+                E.EscalationRaised,
+                escalation_id=self._ids.new_id(),
+                step_id=step_id,
+                reason="max_retries",
+                recommendation=(
+                    f"step {step_id} exhausted its retries: {st.error_message if st else reason}. "
+                    "resolve with retry / skip / abort."
+                ),
+                auto_action="abort",
+            ),
+            self._event(
+                instance,
+                E.InstanceStatusChanged,
+                from_status=WorkflowStatus.RUNNING,
+                to_status=WorkflowStatus.WAITING_APPROVAL,
+                reason=reason,
+            ),
+        ]
+        await self._append(instance, definition, drafts, guard)
+        metrics.record_escalation("max_retries")
+        await self._notify(instance, "max_retries", reason)
+        return DriveReport(instance.instance_id, DriveResult.WAITING_APPROVAL)
 
     async def _escalate_cost_threshold(
         self,

@@ -153,6 +153,48 @@ async def test_resolve_with_budget_bump_adjusts_limit() -> None:
     assert any(isinstance(e, E.WorkflowBudgetAdjusted) for e in rig.journal._events["inst-1"])
 
 
+async def test_on_failure_escalate_parks_exhausted_step_for_a_human() -> None:
+    from agentforge.core.domain.definition import RetryPolicy
+    from agentforge.core.domain.enums import OnFailure, StepStatus
+    from agentforge.exceptions import RateLimitError
+
+    attempts = {"n": 0}
+
+    async def flaky(ctx: StepContext) -> StepResult:
+        attempts["n"] += 1
+        if attempts["n"] <= 2:
+            raise RateLimitError("provider down")
+        return StepResult(output={"recovered": True})
+
+    clock = FixedClock(T0)
+    rig = _Rig(_registry(flaky), clock)
+    wf = WorkflowDefinition(
+        workflow_id="w",
+        name="w",
+        version="1.0.0",
+        on_failure=OnFailure.ESCALATE,
+        steps=(make_step("a", retry_policy=RetryPolicy(max_retries=1)),),
+    )
+    rig.defs.add(wf)
+    await seed_instance(rig.journal, wf)
+
+    await rig.drive()  # attempt 1 fails -> retry scheduled
+    clock.tick(120)
+    assert await rig.drive() is DriveResult.WAITING_APPROVAL  # attempt 2 fails -> escalate
+
+    esc = (await rig.controller.list_pending(tenant_id=TENANT))[0]
+    assert esc.reason == "max_retries"
+
+    # operator says "try once more" — and this time it works
+    await rig.controller.resolve(
+        esc.escalation_id, tenant_id=TENANT, resolution="approve", resolved_by="oncall"
+    )
+    assert await rig.drive() is DriveResult.COMPLETED
+    inst = await rig.instance()
+    assert inst.step("a").status is StepStatus.COMPLETED
+    assert attempts["n"] == 3
+
+
 async def test_resolve_unknown_escalation_raises() -> None:
     rig = _Rig(_registry(), FixedClock(T0))
     with pytest.raises(ConfigurationError):

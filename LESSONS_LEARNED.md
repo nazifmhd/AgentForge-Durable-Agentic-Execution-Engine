@@ -302,3 +302,23 @@ Real problems hit during the build and how they were solved. Added as they happe
 - **Lesson: an enum value or an event type with no producer is a false
   advertisement.** Grep for every `EventType` / enum member and confirm something
   actually creates it, not just that `fold` can consume it.
+
+## Verification pass 3
+
+- **`GET /api/v1/instances` didn't exist.** `instance_index` was built for "cheap
+  status queries" but nothing exposed a list — you could fetch an instance by id
+  but not see what was running / waiting / paused / dead-lettered. Added
+  `EventStore.list_instances(tenant_id, *, statuses, workflow_id, limit, offset)`
+  over the read model (no event replay) and the route.
+- **`OnFailure.ESCALATE` + the `max_retries` escalation reason: enum values with
+  no producer.** A step that exhausted its retries could only `pause` / `rollback`
+  / `dead_letter` — there was no "hand it to a human to decide retry/skip/abort."
+  Wired `on_failure=escalate` → `_escalate_max_retries` raises the escalation and
+  parks; `resolve` reuses the existing FAILED-step branch (`approve` → `READY` for
+  one more attempt).
+- **Audit technique that keeps paying off:** enumerate every enum member and every
+  event type, then grep for something that actually *creates* each one. Three
+  passes over this codebase, five "defined but never produced" findings.
+  Remaining known-inert (documented, intentional): `TriggerSource.REPLAY`,
+  `EscalationReason.SENSITIVE_ACTION`, `InstanceFailed` / `StepSkipped` events
+  (superseded by `InstanceStatusChanged` / `StepStatusChanged`), `ToolCallRecorded`.

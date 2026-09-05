@@ -85,6 +85,9 @@ A workflow parks in `WAITING_APPROVAL` and raises an `EscalationRaised` (with a 
   `ctx.request_review(reason=…, confidence=…, recommendation=…)` itself. The output is kept;
   the instance waits before any downstream step consumes it. (e.g. `ScoringAgent` flags a
   lead whose fit score sits right on the qualify line.)
+- **`max_retries`** — a step exhausted its retries and the definition's
+  `on_failure=escalate` (vs `pause` / `rollback` / `dead_letter`); an operator picks
+  retry / skip / abort.
 - **`compensation_failed`** — a rollback handler threw; needs a human.
 
 `EscalationController.resolve` takes `approve` (a flagged step that already ran → `COMPLETED`

@@ -39,6 +39,7 @@ class OnFailure(StrEnum):
     PAUSE = "pause"
     ROLLBACK = "rollback"
     DEAD_LETTER = "dead_letter"
+    ESCALATE = "escalate"  # a step that exhausts its retries parks for a human
 
 
 class TriggerSource(StrEnum):
