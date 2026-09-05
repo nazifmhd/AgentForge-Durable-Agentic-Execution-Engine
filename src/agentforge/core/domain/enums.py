@@ -116,8 +116,9 @@ STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
     ),
     StepStatus.WAITING_APPROVAL: frozenset(
         {
-            StepStatus.READY,  # approved -> back to the ready queue
+            StepStatus.READY,  # approved before it ran -> back to the ready queue
             StepStatus.RUNNING,
+            StepStatus.COMPLETED,  # a step that ran, flagged for review, then approved as-is
             StepStatus.SKIPPED,
             StepStatus.FAILED,
         }
@@ -131,7 +132,12 @@ STEP_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
             StepStatus.WAITING_APPROVAL,  # held for a human (e.g. budget refusal)
         }
     ),
-    StepStatus.COMPLETED: frozenset({StepStatus.COMPENSATED}),
+    StepStatus.COMPLETED: frozenset(
+        {
+            StepStatus.COMPENSATED,
+            StepStatus.WAITING_APPROVAL,  # the step ran but asked for its output to be reviewed
+        }
+    ),
     StepStatus.SKIPPED: frozenset(),
     StepStatus.COMPENSATED: frozenset(),
 }

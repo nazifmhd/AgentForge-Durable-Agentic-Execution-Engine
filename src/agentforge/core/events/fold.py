@@ -148,6 +148,7 @@ def _on_step_failed(inst: WorkflowInstance, e: E.StepFailed, _: object) -> None:
     st = inst.step(e.step_id)
     st.error_type = e.error_type
     st.error_message = e.error_message
+    st.recorded_llm_calls.clear()  # a retry re-calls the model fresh
     inst.error_history.append(
         ErrorRecord(
             step_id=e.step_id,
@@ -175,6 +176,16 @@ def _on_step_compensated(inst: WorkflowInstance, e: E.StepCompensated, _: object
 def _on_llm_recorded(inst: WorkflowInstance, e: E.LLMCallRecorded, _: object) -> None:
     st = _ensure_step(inst, e.step_id)
     st.model_used = e.model
+    st.recorded_llm_calls.append(
+        {
+            "request_digest": e.request_digest,
+            "model": e.model,
+            "response": e.response,
+            "tokens_input": e.tokens_input,
+            "tokens_output": e.tokens_output,
+            "cost_usd": e.cost_usd,
+        }
+    )
 
 
 def _on_cost(inst: WorkflowInstance, e: E.CostCharged, _: object) -> None:

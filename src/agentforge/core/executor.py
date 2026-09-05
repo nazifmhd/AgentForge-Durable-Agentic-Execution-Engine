@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from agentforge.core.runners import CostEntry, StepContext, StepRegistry
+from agentforge.core.runners import CostEntry, ReviewRequest, StepContext, StepRegistry
 from agentforge.exceptions import RETRYABLE_BY_NAME, AgentForgeError
 
 if TYPE_CHECKING:
@@ -25,6 +25,8 @@ class StepSuccess:
     model_used: str | None
     charges: list[CostEntry] = field(default_factory=list)
     effects: list[EffectOutcome] = field(default_factory=list)
+    review: ReviewRequest | None = None
+    llm_recordings: list[dict[str, Any]] = field(default_factory=list)
     ok: Literal[True] = True
 
 
@@ -35,6 +37,7 @@ class StepFailure:
     retryable: bool
     charges: list[CostEntry] = field(default_factory=list)
     effects: list[EffectOutcome] = field(default_factory=list)
+    llm_recordings: list[dict[str, Any]] = field(default_factory=list)
     ok: Literal[False] = False
 
 
@@ -72,10 +75,13 @@ class StepExecutor:
                 retryable=_classify(exc),
                 charges=ctx.charges,
                 effects=ctx.effects,
+                llm_recordings=ctx.llm_recordings,
             )
         return StepSuccess(
             output=result.output,
             model_used=result.model_used,
             charges=ctx.charges,
             effects=ctx.effects,
+            review=ctx.review,
+            llm_recordings=ctx.llm_recordings,
         )

@@ -247,6 +247,32 @@ async def test_scoring_agent_derives_tier_from_icp_thresholds() -> None:
     assert result.output["tier"] == "hot"
 
 
+async def test_scoring_agent_flags_a_borderline_score_for_review() -> None:
+    icp = ICPProfile(name="t", qualify_threshold=25)
+    borderline = json.dumps(
+        {
+            "fit_score": 27,  # within review_margin (4) of the qualify line
+            "rationale": "signals are thin",
+            "matched_criteria": ["industry"],
+            "missing_criteria": ["headcount"],
+            "disqualifier_hits": [],
+            "recommended_action": "confirm",
+        }
+    )
+    ctx = _ctx(
+        [borderline],
+        {"research": {"lead": _LEAD, "dossier": json.loads(_DOSSIER)}},
+        agent_type="sales_scoring_agent",
+    )
+
+    result = await ScoringAgent(icp).run(ctx)
+
+    assert result.output["tier"] == "cold"
+    assert ctx.review is not None
+    assert ctx.review.reason == "low_confidence"
+    assert "qualify line" in ctx.review.recommendation
+
+
 async def test_scoring_agent_disqualifies_on_a_disqualifier_hit() -> None:
     ctx = _ctx(
         [_SCORE_DISQUALIFIED],

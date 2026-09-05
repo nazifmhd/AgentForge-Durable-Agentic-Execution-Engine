@@ -31,12 +31,12 @@ from agentforge.core.domain.enums import OnFailure, StepStatus, WorkflowStatus
 from agentforge.core.domain.instance import WorkflowInstance
 from agentforge.core.events import BaseEvent, fold
 from agentforge.core.events import types as E
-from agentforge.core.executor import StepExecutor, StepOutcome
+from agentforge.core.executor import StepExecutor, StepOutcome, StepSuccess
 from agentforge.core.leasing import Guard, Lease
 from agentforge.core.llm_client import LLMClient
 from agentforge.core.persistence.protocols import DefinitionSource, EventJournal
 from agentforge.core.ports import SYSTEM_CLOCK, UUID_GENERATOR, Clock, IdGenerator
-from agentforge.core.runners import StepContext
+from agentforge.core.runners import ReviewRequest, StepContext
 from agentforge.core.side_effects import SideEffectGuard
 from agentforge.exceptions import (
     CompensationError,
@@ -352,6 +352,7 @@ class WorkflowDriver:
                 guard=self._side_effects,
                 llm_client=self._llm,
                 budget=budget_view,
+                replay_llm=list(instance.step_states[sid].recorded_llm_calls),
             )
             started = self._clock.now()
             with span(
@@ -372,6 +373,21 @@ class WorkflowDriver:
 
         drafts: list[BaseEvent] = []
         for sid, att, _step, outcome in results:
+            for rec in outcome.llm_recordings:
+                drafts.append(
+                    self._event(
+                        instance,
+                        E.LLMCallRecorded,
+                        step_id=sid,
+                        attempt=att,
+                        request_digest=rec["request_digest"],
+                        model=rec["model"],
+                        response=rec["response"],
+                        tokens_input=rec["tokens_input"],
+                        tokens_output=rec["tokens_output"],
+                        cost_usd=rec["cost_usd"],
+                    )
+                )
             for c in outcome.charges:
                 drafts.append(
                     self._event(
@@ -458,6 +474,55 @@ class WorkflowDriver:
                 )
         if retry_drafts:
             instance = await self._append(instance, definition, retry_drafts, guard)
+
+        reviews: list[tuple[str, ReviewRequest]] = [
+            (sid, o.review)
+            for sid, _, _, o in results
+            if isinstance(o, StepSuccess) and o.review is not None
+        ]
+        if reviews:
+            instance = await self._raise_review_escalations(instance, definition, reviews, guard)
+        return instance
+
+    async def _raise_review_escalations(
+        self,
+        instance: WorkflowInstance,
+        definition: WorkflowDefinition,
+        reviews: list[tuple[str, ReviewRequest]],
+        guard: Guard,
+    ) -> WorkflowInstance:
+        now = self._clock.now()
+        drafts: list[BaseEvent] = []
+        for sid, req in reviews:
+            deadline = now + timedelta(seconds=req.timeout_seconds) if req.timeout_seconds else None
+            drafts.append(
+                self._event(
+                    instance,
+                    E.EscalationRaised,
+                    escalation_id=self._ids.new_id(),
+                    step_id=sid,
+                    reason=req.reason,
+                    recommendation=req.recommendation,
+                    confidence=req.confidence,
+                    options=req.options,
+                    deadline=deadline,
+                    auto_action=req.auto_action,
+                )
+            )
+            metrics.record_escalation(req.reason)
+        drafts.append(
+            self._event(
+                instance,
+                E.InstanceStatusChanged,
+                from_status=WorkflowStatus.RUNNING,
+                to_status=WorkflowStatus.WAITING_APPROVAL,
+                reason=f"review requested: {', '.join(s for s, _ in reviews)}",
+            )
+        )
+        instance = await self._append(instance, definition, drafts, guard)
+        reasons = ", ".join(sorted({r.reason for _, r in reviews}))
+        step_list = ", ".join(s for s, _ in reviews)
+        await self._notify(instance, reasons, f"steps awaiting review: {step_list}")
         return instance
 
     @staticmethod

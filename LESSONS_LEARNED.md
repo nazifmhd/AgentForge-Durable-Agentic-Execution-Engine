@@ -275,3 +275,30 @@ Real problems hit during the build and how they were solved. Added as they happe
   before the `mode="before"` validator saw it. Fix: `Annotated[list[str],
   NoDecode]` so the raw string reaches the validator, which then handles both
   CSV and a JSON list.
+
+## Verification pass 2 — two blueprint gaps closed
+
+- **`low_confidence` / `anomaly_detected` escalations were enum values with no
+  producer.** The `EscalationReason` enum and the `EscalationRaised` event carried
+  `confidence` / `recommendation` fields, but the driver only ever raised
+  `cost_threshold`, `explicit_approval`, and `compensation_failed` — a step had no
+  way to flag its own output for review. Added `StepContext.request_review(...)`:
+  the step finishes and its output is recorded, then the driver raises the
+  escalation and parks the instance in `WAITING_APPROVAL`. Resolution branches on
+  whether the step already ran (`approve` → keep output as `COMPLETED`) vs was
+  gated before running (`approve` → `READY`). `ScoringAgent` uses it for
+  borderline fit scores.
+- **Deterministic replay (ADR-0005) was documented but unimplemented.**
+  `LLMCallRecorded` / `ToolCallRecorded` events existed and `fold` handled them,
+  but nothing emitted them and there was no replay path — so a step re-running
+  after a crash re-called the model and re-billed. Implemented recording +
+  replay-on-recovery through the single `StepContext.llm` chokepoint:
+  `StepState.recorded_llm_calls` accumulates from `LLMCallRecorded`; a re-dispatch
+  passes them as `ctx.replay_llm`; `ctx.llm` returns the recorded response by call
+  index without hitting the provider or charging. `_on_step_failed` clears the
+  recordings so a *retry* (as opposed to crash recovery) calls fresh. Tool-result
+  recording and a standalone `/replay` endpoint stay deferred (documented in the
+  ADR).
+- **Lesson: an enum value or an event type with no producer is a false
+  advertisement.** Grep for every `EventType` / enum member and confirm something
+  actually creates it, not just that `fold` can consume it.

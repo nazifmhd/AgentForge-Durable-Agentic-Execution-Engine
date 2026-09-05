@@ -277,6 +277,10 @@ class EscalationController:
         if step_id and step_id in instance.step_states:
             st = instance.step_states[step_id]
             if resolution in ("approve", "modify"):
+                # A step that already ran and asked for review keeps its output;
+                # one that was gated *before* running goes back to the queue.
+                already_ran = st.output is not None
+                to_status = StepStatus.COMPLETED if already_ran else StepStatus.READY
                 out.append(
                     self._event(
                         E.StepStatusChanged,
@@ -284,7 +288,7 @@ class EscalationController:
                         now,
                         step_id=step_id,
                         from_status=st.status,
-                        to_status=StepStatus.READY,
+                        to_status=to_status,
                         reason=f"approved by {actor}",
                     )
                 )

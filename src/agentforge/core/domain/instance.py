@@ -44,6 +44,9 @@ class StepState(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     next_retry_at: datetime | None = None
+    # Recorded LLM responses for this attempt (ADR-0005). Replayed instead of
+    # re-calling the provider when a crashed step re-runs; cleared on a retry.
+    recorded_llm_calls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ErrorRecord(BaseModel):

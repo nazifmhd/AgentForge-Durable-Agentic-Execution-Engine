@@ -31,9 +31,12 @@ class _State(AgentState, total=False):
 class ScoringAgent(BaseAgent):
     agent_type = AGENT_TYPE
 
-    def __init__(self, icp: ICPProfile | None = None) -> None:
+    def __init__(self, icp: ICPProfile | None = None, *, review_margin: int = 4) -> None:
         super().__init__()
         self._icp = icp or ICPProfile(name="permissive-default")
+        # A score within this many points of the disqualify threshold gets flagged
+        # for a human before the workflow acts on it. 0 disables.
+        self._review_margin = review_margin
 
     def initial_state(self, ctx: StepContext) -> dict[str, Any]:
         research = ctx.inputs.get("research", {})
@@ -96,6 +99,17 @@ class ScoringAgent(BaseAgent):
             disqualifier_hits=hits,
             recommended_action=str(p.get("recommended_action", "")),
         )
+
+        border = self._review_margin
+        if border and not hits and abs(fit - icp.qualify_threshold) <= border:
+            ctx_of(state).request_review(
+                reason="low_confidence",
+                confidence=round(abs(fit - icp.qualify_threshold) / max(border, 1), 2),
+                recommendation=(
+                    f"fit score {fit} is within {border} of the qualify line "
+                    f"({icp.qualify_threshold}) — confirm before outreach"
+                ),
+            )
         return {"score": score.model_dump()}
 
     def to_result(self, final_state: dict[str, Any]) -> StepResult:

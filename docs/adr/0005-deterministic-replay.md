@@ -31,6 +31,20 @@ surfaced, not silently ignored). Side effects are **not** re-executed during rep
 - Recorded LLM responses can be large; stored compressed, and snapshots let us prune very
   old event bodies while keeping digests.
 
+## Implementation status
+
+Built: `LLMCallRecorded` capture through the single `StepContext.llm` chokepoint,
+and **replay on recovery** — when a crashed step re-runs, its recorded responses
+are replayed in order (provider not called, nothing re-charged); a retry after a
+`StepFailed` clears the recordings so the next attempt calls fresh. This is the
+part the blueprint critique was about ("replay just re-runs and re-bills").
+
+Deferred: a standalone `POST /instances/{id}/replay` for offline "replay to step
+N then branch" debugging, RNG seed recording, and `ToolCallRecorded` emission
+(read-only tools are called outside `ctx`; side-effecting ones already go through
+the exactly-once guard). `request_digest` is recorded but not yet asserted on
+replay.
+
 ## Alternatives considered
 
 - **No replay** — drop the feature. Rejected: replay/audit is a headline capability.

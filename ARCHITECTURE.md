@@ -34,8 +34,10 @@ Event families (Phase 1 finalizes the list):
 - lifecycle: `InstanceCreated`, `InstanceStatusChanged`, `InstanceCompleted`, `InstanceFailed`
 - step: `StepScheduled`, `StepStarted`, `StepCompleted`, `StepFailed`, `StepRetryScheduled`,
   `StepSkipped`, `StepCompensated`
-- durability inputs: `LLMCallRecorded`, `ToolCallRecorded` (record the *result* so replay
-  folds it instead of re-calling paid APIs)
+- durability inputs: `LLMCallRecorded` (records the full response through the single
+  `StepContext.llm` chokepoint; a crashed step re-running replays these instead of
+  re-calling the model, so recovery never re-bills — see
+  [ADR-0005](docs/adr/0005-deterministic-replay.md))
 - side effects: `SideEffectIntentRecorded`, `SideEffectExecuted`, `SideEffectCompensated`
 - HITL: `EscalationRaised`, `EscalationResolved`, `EscalationTimedOut`
 - cost: `CostCharged`
@@ -71,6 +73,25 @@ call it "exactly-once" for providers that support idempotency keys; others are
   context fit → pick cheapest projected total cost meeting the reliability floor.
 - Budget is enforced **pre-flight**: if projected step cost > remaining workflow budget (or
   org daily budget), the step escalates instead of running.
+
+## Human-in-the-loop
+
+A workflow parks in `WAITING_APPROVAL` and raises an `EscalationRaised` (with a `reason`,
+`recommendation`, `confidence`, and options) from four triggers:
+
+- **`explicit_approval`** — the step's `requires_approval` flag, gated *before* it runs.
+- **`cost_threshold`** — a pre-flight budget refusal.
+- **`low_confidence` / `anomaly_detected`** — the step *ran*, produced output, and called
+  `ctx.request_review(reason=…, confidence=…, recommendation=…)` itself. The output is kept;
+  the instance waits before any downstream step consumes it. (e.g. `ScoringAgent` flags a
+  lead whose fit score sits right on the qualify line.)
+- **`compensation_failed`** — a rollback handler threw; needs a human.
+
+`EscalationController.resolve` takes `approve` (a flagged step that already ran → `COMPLETED`
+keeping its output; one gated before running → back to `READY`), `skip`, `abort`, or
+`approve` + `new_budget_usd`. An unanswered escalation past its `deadline` fires the step's
+auto-action via the worker's sweep loop. Everything is on the event log, so a resolution is
+auditable and the instance is resumable.
 
 ## Agent runtime
 

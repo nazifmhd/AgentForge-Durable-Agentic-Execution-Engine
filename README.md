@@ -21,7 +21,8 @@ recoverable, cost-bounded, and auditable.
 ## How it works
 
 - **Event-sourced core.** Every state change is an append-only event; instance state is a
-  fold over its event log. Free audit trail, deterministic replay, no lost-update races.
+  fold over its event log. Free audit trail, no lost-update races. LLM responses are
+  recorded, so a step re-running after a crash replays them instead of re-billing.
 - **Worker leasing.** Multiple workers pull instances off a Postgres queue with
   `FOR UPDATE SKIP LOCKED`, renew a lease via heartbeat, and a recovery sweep reclaims
   leases whose worker died — that *is* the crash-recovery mechanism.
@@ -30,9 +31,10 @@ recoverable, cost-bounded, and auditable.
   compensation action for rollback.
 - **Cost-aware routing.** A config-driven model registry + pre-flight token estimation
   picks the cheapest model in the task's tier that fits the budget, with fallback chains.
-- **Human-in-the-loop.** Steps can require approval or escalate on low confidence / cost
-  threshold / anomaly; the workflow parks in `WAITING_APPROVAL` until a human responds or a
-  deadline auto-action fires.
+- **Human-in-the-loop.** A step can require approval up front, hit a pre-flight budget
+  refusal, or call `ctx.request_review(...)` to flag its own output as low-confidence /
+  anomalous — the workflow parks in `WAITING_APPROVAL` (keeping the step's output) until a
+  human resolves it or a deadline auto-action fires.
 
 ## Quick start
 
