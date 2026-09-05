@@ -86,6 +86,31 @@ async def test_register_then_execute_then_get(api: ApiHarness) -> None:
     assert r.json()["status"] == "pending"
 
 
+async def test_list_instances_filters_by_status_and_tenant(api: ApiHarness) -> None:
+    key = api.make_key(Scope.ADMIN)
+    await api.client.post("/api/v1/workflows", json=WF, headers=_h(key))
+    ids = []
+    for _ in range(3):
+        r = await api.client.post("/api/v1/workflows/Sales/execute", json={}, headers=_h(key))
+        ids.append(r.json()["instance_id"])
+    await api.drive_all()  # all -> completed
+
+    r = await api.client.get("/api/v1/instances", headers=_h(key))
+    assert r.status_code == 200
+    body = r.json()
+    assert {row["instance_id"] for row in body} == set(ids)
+    assert all(row["status"] == "completed" for row in body)
+
+    r = await api.client.get("/api/v1/instances?status=completed&limit=2", headers=_h(key))
+    assert len(r.json()) == 2
+    r = await api.client.get("/api/v1/instances?status=running", headers=_h(key))
+    assert r.json() == []
+
+    other = api.make_key(Scope.ADMIN, tenant="someone-else")
+    r = await api.client.get("/api/v1/instances", headers=_h(other))
+    assert r.json() == []
+
+
 async def test_tenant_isolation(api: ApiHarness) -> None:
     a_key = api.make_key(Scope.ADMIN, tenant="tenant-a")
     b_key = api.make_key(Scope.ADMIN, tenant="tenant-b")

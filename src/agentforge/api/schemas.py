@@ -51,6 +51,19 @@ class InstanceView(BaseModel):
     completed_at: datetime | None
 
 
+class InstanceSummaryView(BaseModel):
+    instance_id: str
+    workflow_id: str
+    workflow_version: str
+    status: str
+    cost_accumulated_usd: float
+    budget_limit_usd: float | None
+    next_wakeup_at: datetime | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    completed_at: datetime | None
+
+
 class EventView(BaseModel):
     sequence: int
     event_type: str

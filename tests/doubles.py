@@ -140,6 +140,45 @@ class InMemoryJournal:
     async def load(self, instance_id: str, tenant_id: str, *, after: int = 0) -> list[BaseEvent]:
         return [e for e in self._events.get(instance_id, []) if e.sequence > after]
 
+    async def list_instances(
+        self,
+        tenant_id: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        workflow_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Any]:
+        from agentforge.core.persistence.event_store import InstanceSummary
+
+        rows = sorted(
+            (e for e in self.index.values() if e.tenant_id == tenant_id),
+            key=lambda e: e.updated_at,
+            reverse=True,
+        )
+        if statuses:
+            rows = [e for e in rows if e.status in set(statuses)]
+        if workflow_id:
+            rows = [e for e in rows if e.workflow_id == workflow_id]
+        out: list[Any] = []
+        for e in rows[offset : offset + limit]:
+            inst = fold(self._events[e.instance_id])
+            out.append(
+                InstanceSummary(
+                    instance_id=e.instance_id,
+                    workflow_id=e.workflow_id,
+                    workflow_version=e.workflow_version,
+                    status=e.status,
+                    cost_accumulated_usd=inst.cost_accumulated_usd,
+                    budget_limit_usd=inst.budget_limit_usd,
+                    next_wakeup_at=e.next_wakeup_at,
+                    created_at=inst.created_at,
+                    updated_at=e.updated_at,
+                    completed_at=inst.completed_at,
+                )
+            )
+        return out
+
     async def state_at(
         self,
         instance_id: str,

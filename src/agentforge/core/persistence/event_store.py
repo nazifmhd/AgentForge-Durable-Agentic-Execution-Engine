@@ -5,6 +5,7 @@ snapshot and index rows kept consistent inside the same transaction.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select, update
@@ -32,6 +33,20 @@ from agentforge.core.persistence.tables import (
 )
 from agentforge.core.pubsub import EventPublisher, NoopPublisher
 from agentforge.exceptions import ConflictError, EventStreamError
+
+
+@dataclass(frozen=True, slots=True)
+class InstanceSummary:
+    instance_id: str
+    workflow_id: str
+    workflow_version: str
+    status: str
+    cost_accumulated_usd: float
+    budget_limit_usd: float | None
+    next_wakeup_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
 
 
 class EventStore:
@@ -241,6 +256,46 @@ class EventStore:
         if not events:
             return None
         return fold(events, definition=definition)
+
+    async def list_instances(
+        self,
+        tenant_id: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        workflow_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[InstanceSummary]:
+        """Page the ``instance_index`` read model — cheap status queries for an
+        operator surface, no event replay."""
+        stmt = (
+            select(InstanceIndexRow)
+            .where(InstanceIndexRow.tenant_id == tenant_id)
+            .order_by(InstanceIndexRow.updated_at.desc())
+            .limit(min(limit, 200))
+            .offset(max(offset, 0))
+        )
+        if statuses:
+            stmt = stmt.where(InstanceIndexRow.status.in_(list(statuses)))
+        if workflow_id:
+            stmt = stmt.where(InstanceIndexRow.workflow_id == workflow_id)
+        async with self._sm() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [
+            InstanceSummary(
+                instance_id=r.instance_id,
+                workflow_id=r.workflow_id,
+                workflow_version=r.workflow_version,
+                status=r.status,
+                cost_accumulated_usd=r.cost_accumulated_usd,
+                budget_limit_usd=r.budget_limit_usd,
+                next_wakeup_at=r.next_wakeup_at,
+                created_at=r.created_at,
+                updated_at=r.updated_at,
+                completed_at=r.completed_at,
+            )
+            for r in rows
+        ]
 
     async def latest_snapshot(self, instance_id: str, tenant_id: str) -> Snapshot | None:
         async with self._sm() as session:

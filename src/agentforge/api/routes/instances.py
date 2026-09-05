@@ -5,7 +5,13 @@ import contextlib
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from agentforge.api.deps import ApiDeps, get_deps, require
-from agentforge.api.schemas import ControlRequest, EventView, InstanceView, StepView
+from agentforge.api.schemas import (
+    ControlRequest,
+    EventView,
+    InstanceSummaryView,
+    InstanceView,
+    StepView,
+)
 from agentforge.core.auth import Principal, Scope
 from agentforge.core.domain.instance import WorkflowInstance
 from agentforge.core.events.types import dump_event
@@ -54,6 +60,39 @@ async def _load(deps: ApiDeps, instance_id: str, tenant_id: str) -> WorkflowInst
     if inst is None:
         raise ConfigurationError(f"instance {instance_id} not found")
     return inst
+
+
+@router.get("")
+async def list_instances(  # noqa: PLR0917 - FastAPI query params must be signature args
+    status: list[str] | None = Query(None, description="filter by workflow status"),
+    workflow_id: str | None = Query(None, description="filter by workflow id"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    deps: ApiDeps = Depends(get_deps),
+    principal: Principal = Depends(_READ),
+) -> list[InstanceSummaryView]:
+    rows = await deps.events.list_instances(
+        principal.tenant_id,
+        statuses=status,
+        workflow_id=workflow_id,
+        limit=limit,
+        offset=offset,
+    )
+    return [
+        InstanceSummaryView(
+            instance_id=r.instance_id,
+            workflow_id=r.workflow_id,
+            workflow_version=r.workflow_version,
+            status=r.status,
+            cost_accumulated_usd=r.cost_accumulated_usd,
+            budget_limit_usd=r.budget_limit_usd,
+            next_wakeup_at=r.next_wakeup_at,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            completed_at=r.completed_at,
+        )
+        for r in rows
+    ]
 
 
 @router.get("/{instance_id}")

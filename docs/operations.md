@@ -56,6 +56,11 @@ workflow's `budget_limit_usd`; edit `config/models.yaml` tiers and send the
 worker a reload (the registry is hot-reloadable). Pre-flight budgeting means an
 over-budget step escalates instead of spending.
 
+**See what's in flight.** `GET /api/v1/instances?status=waiting_approval` (or
+`running`, `paused`, `retrying`, `dead_lettered`, …) pages the `instance_index`
+read model — id, workflow, status, accumulated cost, next wakeup — with no event
+replay.
+
 **Replay / audit an instance.** `GET /api/v1/instances/{id}/events` is the full
 event log; `?at_version=N` returns the folded state as of any point.
 
