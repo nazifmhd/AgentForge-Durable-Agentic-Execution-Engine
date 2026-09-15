@@ -30,7 +30,14 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def _engine() -> AsyncIterator[object]:
-    engine = create_async_engine(str(settings.database_url))
+    # pool_pre_ping: a pooled connection idle between tests can be closed by the
+    # peer (Postgres itself, or the CI service container network) without the
+    # client noticing until the next checkout — asyncpg then surfaces that as an
+    # unexpected connection_lost() / "Future exception was never retrieved" on
+    # whatever statement runs next, not as a clean error at checkout time.
+    # pre_ping issues a cheap round-trip before handing out a pooled connection
+    # and transparently reconnects if it's gone stale.
+    engine = create_async_engine(str(settings.database_url), pool_pre_ping=True, pool_recycle=3600)
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
