@@ -18,10 +18,17 @@ from agentforge.core.persistence.definition_repo import DefinitionRepository
 from agentforge.core.persistence.event_store import EventStore
 from agentforge.db import Base
 
-pytestmark = pytest.mark.integration
+# A session-scoped asyncpg engine needs its connections created and used on one
+# and the same event loop for the whole run — pytest-asyncio otherwise hands out
+# a *new* loop per test function, and asyncpg then raises "cannot perform
+# operation: another operation is in progress" the moment a later test tries to
+# use a pooled connection that belongs to an already-closed earlier loop. Pin
+# every fixture (and, via the marker below, every test) in this package to the
+# same session-scoped loop so the pool stays valid throughout.
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def _engine() -> AsyncIterator[object]:
     engine = create_async_engine(str(settings.database_url))
     try:
@@ -34,7 +41,7 @@ async def _engine() -> AsyncIterator[object]:
     await engine.dispose()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def sessionmaker(
     _engine: object,
 ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
