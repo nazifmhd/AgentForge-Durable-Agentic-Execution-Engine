@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import jwt
-from tests.api.conftest import TENANT, ApiHarness
-from tests.factories import linear_workflow
 
 from agentforge.config import settings
 from agentforge.core.auth import Scope
+from tests.api.conftest import TENANT, ApiHarness
+from tests.factories import linear_workflow
 
 WF = linear_workflow(2, workflow_id="sales", name="Sales").model_dump(mode="json")
 APPROVAL_WF = {

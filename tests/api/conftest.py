@@ -5,16 +5,6 @@ from dataclasses import dataclass
 
 import httpx
 import pytest_asyncio
-from tests.doubles import (
-    FakeDeadLetters,
-    FakeRedis,
-    InMemoryApiKeyStore,
-    InMemoryDefinitions,
-    InMemoryEscalationReadStore,
-    InMemoryJournal,
-    InMemoryLeaseStore,
-)
-from tests.factories import T0
 
 from agentforge.api.app import create_app
 from agentforge.api.deps import ApiDeps
@@ -27,6 +17,16 @@ from agentforge.core.executor import StepExecutor
 from agentforge.core.instances import InstanceService
 from agentforge.core.ports import FixedClock, SequentialIdGenerator
 from agentforge.core.runners import FunctionRunner, StepContext, StepRegistry, StepResult
+from tests.doubles import (
+    FakeDeadLetters,
+    FakeRedis,
+    InMemoryApiKeyStore,
+    InMemoryDefinitions,
+    InMemoryEscalationReadStore,
+    InMemoryJournal,
+    InMemoryLeaseStore,
+)
+from tests.factories import T0
 
 TENANT = "acme"
 
