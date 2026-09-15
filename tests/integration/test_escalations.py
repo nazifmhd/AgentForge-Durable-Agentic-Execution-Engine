@@ -16,7 +16,7 @@ from agentforge.core.ports import FixedClock, SequentialIdGenerator
 from agentforge.core.runners import FunctionRunner, StepContext, StepRegistry, StepResult
 from agentforge.worker import Worker
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 TENANT = "tenant-1"
 T0 = datetime(2026, 9, 5, tzinfo=UTC)
 

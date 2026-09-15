@@ -6,7 +6,7 @@ from sqlalchemy import text
 from agentforge.core.auth import AuthError, AuthService, PgApiKeyStore, mint_api_key
 from agentforge.core.persistence.tables import DeadLetterRow
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_pg_api_key_round_trip(sessionmaker) -> None:

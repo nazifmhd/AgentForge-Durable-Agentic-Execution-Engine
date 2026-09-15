@@ -8,7 +8,7 @@ import pytest
 from agentforge.core.cost.budget import BudgetService, PgBudgetLedger
 from agentforge.core.domain.instance import WorkflowInstance
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_ledger_accumulates_concurrently(sessionmaker) -> None:

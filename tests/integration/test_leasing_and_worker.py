@@ -15,7 +15,7 @@ from agentforge.core.runners import FunctionRunner, StepContext, StepRegistry, S
 from agentforge.exceptions import LeaseLostError
 from agentforge.worker import Worker
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 TENANT = "tenant-1"
 
 

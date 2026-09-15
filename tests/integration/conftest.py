@@ -21,11 +21,14 @@ from agentforge.db import Base
 # A session-scoped asyncpg engine needs its connections created and used on one
 # and the same event loop for the whole run — pytest-asyncio otherwise hands out
 # a *new* loop per test function, and asyncpg then raises "cannot perform
-# operation: another operation is in progress" the moment a later test tries to
-# use a pooled connection that belongs to an already-closed earlier loop. Pin
-# every fixture (and, via the marker below, every test) in this package to the
-# same session-scoped loop so the pool stays valid throughout.
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
+# operation: another operation is in progress" / "attached to a different loop"
+# the moment a test tries to use a pooled connection that belongs to a different
+# loop than the one it's running on. `_engine` and `sessionmaker` below are
+# pinned to loop_scope="session" directly on the fixture decorator; every
+# `test_*.py` module in this package must pin the *same* loop_scope on its own
+# `pytestmark` (a conftest.py is not part of a test item's marker chain — a
+# marker set here does not reach sibling test modules).
+pytestmark = pytest.mark.integration
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

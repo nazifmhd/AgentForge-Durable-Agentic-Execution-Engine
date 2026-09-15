@@ -14,7 +14,7 @@ from agentforge.core.persistence.tables import InstanceIndexRow, InstanceSnapsho
 from agentforge.core.ports import FixedClock, SequentialIdGenerator
 from agentforge.exceptions import ConfigurationError, ConflictError
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 TENANT = "tenant-1"
 
 
